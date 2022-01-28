@@ -2,6 +2,7 @@ import torch
 
 from nerf_lib import NerfLib
 from networks.nerf import Nerf
+from data.nsvf_dataset import NSVFDataset
 
 if __name__ == '__main__':
     conf = {
@@ -10,10 +11,9 @@ if __name__ == '__main__':
     }
 
     nerf_lib = NerfLib(conf)
-    tmp_x, tmp_d = torch.rand(8, 3), torch.rand(8, 3)
-    enc_x = nerf_lib.embed_x(tmp_x)
-    enc_d = nerf_lib.embed_d(tmp_d)
-    print(enc_x.shape, enc_d.shape)
+
+    dataset = NSVFDataset('/home/hwpang/datasets/nsvf/Synthetic_NeRF/Chair', 'train')
+    tmp_img, tmp_pose = dataset[0]
 
     # model = Nerf(63, 27, 8, 256, [256, 128], [5])
     # model = Nerf(63, 27, 2, 32, [32, 32])
