@@ -45,10 +45,3 @@ class Nerf(nn.Module):
 
         c = torch.sigmoid(self.c_layer(out))
         return c, a
-
-
-if __name__ == '__main__':
-    # model = Nerf(63, 27, 8, 256, [256, 128], [5])
-    model = Nerf(63, 27, 2, 32, [32, 32])
-    tmp_x, tmp_d = torch.rand(8, 63), torch.rand(8, 27)
-    tmp_c, tmp_a = model(tmp_x, tmp_d)
