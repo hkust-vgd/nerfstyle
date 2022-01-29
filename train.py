@@ -17,17 +17,23 @@ def train():
         'd_enc_count': 4,
         'num_rays_per_batch': 1024,
         'num_samples_per_ray': 384,
-        'network_chunk_size': 65536
+        'network_chunk_size': 65536,
+        'precrop_fraction': 0.5,
+        'precrop_iterations': 10000
     }
 
-    nerf_lib = NerfLib(conf)
+    device = torch.device('cuda:0')
+    nerf_lib = NerfLib(conf, device)
 
     # Randomly sample image / pose from dataset
     dataset = NSVFDataset('/home/hwpang/datasets/nsvf/Synthetic_NeRF/Chair', 'train')
     tmp_img, tmp_pose = dataset[0]
+    iter_ctr = 0
 
     # Generate rays (filter center only?)
-    target, rays_o, rays_d = nerf_lib.generate_rays(dataset.intrinsics, tmp_img, tmp_pose)
+    precrop = conf['precrop_fraction'] if iter_ctr < conf['precrop_iterations'] else None
+    rays_o, rays_d, coords = nerf_lib.generate_rays(dataset.intrinsics, tmp_pose, precrop=precrop)
+    target = torch.tensor(tmp_img[coords], dtype=torch.float32).to(device)
     rays = RayBatch(rays_o, rays_d, dataset.near, dataset.far)
 
     # Render rays
@@ -39,7 +45,7 @@ def train():
     dirs_embedded = nerf_lib.embed_d(dirs)
     dirs_embedded = torch.repeat_interleave(dirs_embedded, repeats=conf['num_samples_per_ray'], dim=0)
 
-    model = Nerf(63, 27, 8, 256, [256, 128], [5])
+    model = Nerf(63, 27, 8, 256, [256, 128], [5]).to(device)
 
     rgbs, densities = [], []
     for pts_batch, dirs_batch in batch(pts_embedded, dirs_embedded, bsize=conf['network_chunk_size']):
@@ -49,7 +55,9 @@ def train():
 
     rgbs = torch.concat(rgbs, dim=0).reshape(pts.shape)
     densities = torch.concat(densities, dim=0).reshape(pts.shape[:-1])
-    print(rgbs.shape, densities.shape)
+
+    print(rgbs.shape, densities.shape, target.shape)
+    # TODO: evaluate volumetric rendering and compare loss with target
 
 
 if __name__ == '__main__':

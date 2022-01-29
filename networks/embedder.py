@@ -9,7 +9,7 @@ class Embedder(nn.Module):
         super(Embedder, self).__init__()
         self.num_freqs = num_freqs
         self.append_input = append_input
-        self.basis = torch.tensor([pi * (2 ** i) for i in range(num_freqs)])
+        self.register_buffer('basis', torch.tensor([pi * (2 ** i) for i in range(num_freqs)]))
 
     def forward(self, x: torch.Tensor):
         out = einops.repeat(x, 'n k -> n k c', c=self.num_freqs)

@@ -24,6 +24,11 @@ class NSVFDataset:
         self.imgs = np.stack([_parse_rgb(path) for path in self.rgb_paths])
         self.poses = np.stack([load_matrix(path) for path in self.pose_paths], axis=0)
 
+        # Convert alpha to white
+        assert self.imgs.shape[-1] == 4
+        rgb, alpha = self.imgs[..., :3], self.imgs[..., 3:]
+        self.imgs = rgb * alpha + (1 - alpha)
+
         H, W = self.imgs.shape[1:3]
         with open(intrinsics_path, 'r') as file:
             f, cx, cy, _ = map(float, file.readline().split())
