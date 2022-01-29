@@ -1,4 +1,7 @@
 import numpy as np
+import torch
+
+from ray_batch import RayBatch
 from data.common import Intrinsics
 from networks.embedder import Embedder
 
@@ -7,8 +10,7 @@ class NerfLib:
     def __init__(self, conf):
         self.x_embedder = Embedder(conf['x_enc_count'])
         self.d_embedder = Embedder(conf['d_enc_count'])
-
-        self.num_rays_per_batch = conf['num_rays_per_batch']
+        self.conf = conf
 
     def embed_x(self, x):
         return self.x_embedder(x)
@@ -24,9 +26,21 @@ class NerfLib:
         rays_d = np.einsum('ij, hwj -> hwi', pose[:3, :3], dirs).reshape(-1, 3)
 
         N = intr.h * intr.w
-        mask = np.random.choice(np.arange(N), self.num_rays_per_batch, replace=False)
-        rays_d = rays_d[mask]
-        rays_o = np.broadcast_to(pose[:3, -1], np.shape(rays_d)).reshape(-1, 3)
+        mask = np.random.choice(np.arange(N), self.conf['num_rays_per_batch'], replace=False)
+        rays_d = torch.tensor(rays_d[mask], dtype=torch.float32)
+        rays_o = torch.tensor(pose[:3, -1], dtype=torch.float32)
         target = img.reshape((N, -1))[mask]
 
         return target, rays_o, rays_d
+
+    def sample_points(self, rays: RayBatch):
+        n_samples = self.conf['num_samples_per_ray']
+        z_vals = torch.linspace(rays.near, rays.far, steps=(n_samples + 1))
+        z_vals = z_vals.expand([len(rays), n_samples + 1])
+
+        lower = z_vals[:, :-1]
+        upper = z_vals[:, 1:]
+        t_rand = torch.rand(lower.shape)
+        z_vals = lower + (upper - lower) * t_rand
+        pts = rays.lerp(z_vals)
+        return pts

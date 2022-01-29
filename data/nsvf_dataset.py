@@ -29,7 +29,13 @@ class NSVFDataset:
             f, cx, cy, _ = map(float, file.readline().split())
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-        self.bbox = load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+        bbox_min, bbox_max = load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+        bbox_center = (bbox_min + bbox_max) / 2
+        pts = self.poses[:, :3, -1]  # TODO: Use all splits for computing near / far
+        closest_pts = np.clip(pts, bbox_min, bbox_max)
+        furthest_pts = np.where(pts < bbox_center, bbox_max, bbox_min)
+        self.near = np.amin(np.linalg.norm(pts - closest_pts, axis=1))
+        self.far = np.amax(np.linalg.norm(pts - furthest_pts, axis=1))
 
     def __getitem__(self, index):
         return self.imgs[index], self.poses[index]
