@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from ray_batch import RayBatch
 from data.common import Intrinsics
@@ -38,8 +39,8 @@ class NerfLib:
         indices = np.random.choice(np.arange(w * h), self.conf['num_rays_per_batch'], replace=False)
         rays_coords = (indices // h + dy, indices % h + dx)
 
-        rays_d = torch.tensor(rays_d[indices], dtype=torch.float32).to(self.device)
-        rays_o = torch.tensor(pose[:3, -1], dtype=torch.float32).to(self.device)
+        rays_d = torch.FloatTensor(rays_d[indices]).to(self.device)
+        rays_o = torch.FloatTensor(pose[:3, -1]).to(self.device)
 
         return rays_o, rays_d, rays_coords
 
@@ -53,4 +54,23 @@ class NerfLib:
         t_rand = torch.rand(lower.shape).to(self.device)
         z_vals = lower + (upper - lower) * t_rand
         pts = rays.lerp(z_vals)
-        return pts
+
+        dists = (z_vals[..., 1:] - z_vals[..., :-1]) * torch.norm(rays.dests, dim=-1, keepdim=True)
+        dists = torch.cat([dists, torch.ones((len(dists), 1)).to(self.device) * 1e10], dim=-1)
+        return pts, dists
+
+    def integrate_points(self, dists, rgbs, densities):
+        """
+        Evaluate the volumetric rendering equation for multiple rays.
+        :param dists:       (N, K) array of distances between samples
+        :param rgbs:        (N, K, 3) array of sampled colors
+        :param densities:   (N, K) array of sampled densities
+        :return:            (N, 3) array of colors
+        """
+        alpha = 1. - torch.exp(-F.relu(densities) * dists)
+        # 1, (1 - a_1), ..., (1 - a_(K-1))
+        alpha_tmp = torch.cat([torch.ones((len(alpha), 1)).to(self.device), (1. - alpha[:, :-1])], dim=-1)
+        transmittance = torch.cumprod(alpha_tmp, dim=-1)
+        rgb_map = torch.sum((alpha * transmittance).unsqueeze(-1) * rgbs, dim=1)
+
+        return rgb_map

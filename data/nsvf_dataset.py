@@ -1,10 +1,11 @@
 from pathlib import Path
 import numpy as np
 import imageio
+from torch.utils.data import Dataset
 from data.common import Intrinsics, load_matrix
 
 
-class NSVFDataset:
+class NSVFDataset(Dataset):
     def __init__(self, dataroot, split='train'):
         self.root = Path(dataroot)
         rgb_dir = self.root / 'rgb'
