@@ -3,6 +3,7 @@ from itertools import cycle
 from pathlib import Path
 import time
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -37,6 +38,10 @@ class PretrainTrainer:
         self.lib = NerfLib(self.net_cfg, self.train_cfg, self.device)
         self.writer = SummaryWriter(log_dir=self.log_path)
 
+        np.random.seed(self.train_cfg.rng_seed)
+        torch.manual_seed(self.train_cfg.rng_seed)
+        torch.cuda.manual_seed(self.train_cfg.rng_seed)
+
         # Initialize model
         x_channels, d_channels = 3, 3
         x_enc_channels = 2 * x_channels * self.net_cfg.x_enc_count + x_channels
@@ -60,8 +65,8 @@ class PretrainTrainer:
         mse_loss = torch.mean((rendered - target) ** 2)
         return mse_loss
 
-    def check_interval(self, interval):
-        return (self.iter_ctr % interval) == 0
+    def check_interval(self, interval, after=-1):
+        return (self.iter_ctr % interval == 0) and (self.iter_ctr > after)
 
     def print_status(self, loss, psnr):
         # TODO: Use logging class
@@ -73,6 +78,25 @@ class PretrainTrainer:
         self.writer.add_scalar('train/psnr', psnr.item(), self.iter_ctr)
         self.writer.add_scalar('misc/time', time.time() - self.time0, self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
+    
+    def save_ckpt(self):
+        ckpt_dict = {
+            'iter': self.iter_ctr,
+            'model': self.model.state_dict(),
+            'optim': self.optim.state_dict(),
+            'rng_states': {
+                'np': np.random.get_state(),
+                'torch': torch.get_rng_state(),
+                'torch_cuda': torch.cuda.get_rng_state()
+            }
+        }
+
+        ckpt_fn = 'iter_{:0{width}d}.pth'.format(self.iter_ctr, width=len(self.train_cfg.num_iterations))
+        ckpt_path = self.log_path / ckpt_fn
+
+        torch.save(ckpt_dict, ckpt_path)
+        # TODO: Use logging class
+        print('Saved checkpoint at {}'.format(ckpt_path))
 
     def run_iter(self):
         img, pose = next(self.train_loader)
@@ -118,6 +142,8 @@ class PretrainTrainer:
             self.print_status(loss, psnr)
         if self.check_interval(self.train_cfg.intervals.log):
             self.log_status(loss, psnr, new_lr)
+        if self.check_interval(self.train_cfg.intervals.ckpt, after=0):
+            self.save_ckpt()
 
         self.iter_ctr += 1
 

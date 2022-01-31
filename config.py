@@ -67,4 +67,7 @@ class TrainConfig(Config):
     intervals: TrainIntervalConfig
     """Intervals to be used during training."""
 
+    rng_seed: int
+    """Seed for NumPy / PyTorch randomized number generators."""
+
     default_path = 'cfgs/training/default.yaml'
