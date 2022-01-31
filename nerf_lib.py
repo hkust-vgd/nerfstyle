@@ -2,16 +2,18 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from config import NetworkConfig, TrainConfig
 from ray_batch import RayBatch
 from data.common import Intrinsics
 from networks.embedder import Embedder
 
 
 class NerfLib:
-    def __init__(self, conf, device):
-        self.x_embedder = Embedder(conf['x_enc_count']).to(device)
-        self.d_embedder = Embedder(conf['d_enc_count']).to(device)
-        self.conf = conf
+    def __init__(self, net_cfg: NetworkConfig, train_cfg: TrainConfig, device):
+        self.x_embedder = Embedder(net_cfg.x_enc_count).to(device)
+        self.d_embedder = Embedder(net_cfg.d_enc_count).to(device)
+        self.net_cfg = net_cfg
+        self.train_cfg = train_cfg
         self.device = device
 
     def embed_x(self, x):
@@ -36,7 +38,7 @@ class NerfLib:
         dirs = np.stack([(i - intr.cx) / intr.fx, -(j - intr.cy) / intr.fy, -np.ones_like(i)], -1)
         rays_d = np.einsum('ij, hwj -> hwi', pose[:3, :3], dirs).reshape(-1, 3)
 
-        indices = np.random.choice(np.arange(w * h), self.conf['num_rays_per_batch'], replace=False)
+        indices = np.random.choice(np.arange(w * h), self.train_cfg.num_rays_per_batch, replace=False)
         rays_coords = (indices // h + dy, indices % h + dx)
 
         rays_d = torch.FloatTensor(rays_d[indices]).to(self.device)
@@ -45,7 +47,7 @@ class NerfLib:
         return rays_o, rays_d, rays_coords
 
     def sample_points(self, rays: RayBatch):
-        n_samples = self.conf['num_samples_per_ray']
+        n_samples = self.net_cfg.num_samples_per_ray
         z_vals = torch.linspace(rays.near, rays.far, steps=(n_samples + 1)).to(self.device)
         z_vals = z_vals.expand([len(rays), n_samples + 1])
 
