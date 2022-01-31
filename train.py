@@ -1,6 +1,11 @@
 import argparse
+from itertools import cycle
+from pathlib import Path
+import time
+
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 from config import NetworkConfig, TrainConfig
 from nerf_lib import NerfLib
@@ -19,19 +24,18 @@ def compute_psnr(loss):
     return psnr
 
 
-def cycle(iterable):
-    while True:
-        for item in iterable:
-            yield item
-
-
 class PretrainTrainer:
     def __init__(self, args):
         self.net_cfg = NetworkConfig.load()  # 'cfgs/network/{}.yaml'.format(args.mode))
-        self.train_cfg = TrainConfig.load()
+        self.train_cfg = TrainConfig.load('cfgs/training/{}.yaml'.format(args.mode))
+
+        self.name = args.name
+        self.log_path: Path = Path('./runs') / self.name
+        self.log_path.mkdir(parents=True, exist_ok=True)
 
         self.device = torch.device('cuda:0')
         self.lib = NerfLib(self.net_cfg, self.train_cfg, self.device)
+        self.writer = SummaryWriter(log_dir=self.log_path)
 
         # Initialize model
         x_channels, d_channels = 3, 3
@@ -49,6 +53,7 @@ class PretrainTrainer:
                                       lr=self.train_cfg.initial_learning_rate, betas=(0.9, 0.999))
 
         self.iter_ctr = 0
+        self.time0 = time.time()
 
     @staticmethod
     def calc_loss(rendered, target):
@@ -58,10 +63,16 @@ class PretrainTrainer:
     def check_interval(self, interval):
         return (self.iter_ctr % interval) == 0
 
-    def print_status(self, loss):
+    def print_status(self, loss, psnr):
         # TODO: Use logging class
         log_str = '[TRAIN] Iter: {:d}, Loss: {:.5f}, PSNR: {:.5f}'
-        print(log_str.format(self.iter_ctr, loss.item(), compute_psnr(loss).item()))
+        print(log_str.format(self.iter_ctr, loss.item(), psnr.item()))
+    
+    def log_status(self, loss, psnr, cur_lr):
+        self.writer.add_scalar('train/loss', loss.item(), self.iter_ctr)
+        self.writer.add_scalar('train/psnr', psnr.item(), self.iter_ctr)
+        self.writer.add_scalar('misc/time', time.time() - self.time0, self.iter_ctr)
+        self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
 
     def run_iter(self):
         img, pose = next(self.train_loader)
@@ -91,18 +102,27 @@ class PretrainTrainer:
         densities = torch.concat(densities, dim=0).reshape(pts.shape[:-1])
         rgb_map = self.lib.integrate_points(dists, rgbs, densities)
         loss = self.calc_loss(rendered=rgb_map, target=target)
+        psnr = compute_psnr(loss)
 
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
 
-        if self.check_interval(100):
-            self.print_status(loss)
+        new_lr = self.train_cfg.initial_learning_rate
+        if self.train_cfg.learning_rate_decay:
+            new_lr = self.train_cfg.initial_learning_rate * (0.1 ** (self.iter_ctr / self.train_cfg.learning_rate_decay))
+            for param_group in self.optim.param_groups:
+                param_group['lr'] = new_lr
+        
+        if self.check_interval(self.train_cfg.intervals.print):
+            self.print_status(loss, psnr)
+        if self.check_interval(self.train_cfg.intervals.log):
+            self.log_status(loss, psnr, new_lr)
 
         self.iter_ctr += 1
 
-    def run(self, niters=200000):
-        while self.iter_ctr < niters:
+    def run(self):
+        while self.iter_ctr < self.train_cfg.num_iterations:
             self.run_iter()
 
 
@@ -110,6 +130,7 @@ def train():
     parser = argparse.ArgumentParser()
     parser.add_argument('dataroot')
     parser.add_argument('--mode', choices=['pretrain', 'distill', 'finetune'], default='pretrain')
+    parser.add_argument('--name', default='tmp')
 
     args = parser.parse_args()
     trainer = PretrainTrainer(args)

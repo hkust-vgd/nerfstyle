@@ -1,4 +1,6 @@
+from ast import Load
 from dataclasses import dataclass
+from dacite import from_dict
 import yaml
 
 
@@ -11,10 +13,11 @@ class Config:
             cfg_dict = yaml.load(f, Loader=yaml.FullLoader)
         
         if config_path is not None:
-            # TODO: Overwrite default parameters
-            raise NotImplementedError
+            with open(config_path, 'r') as f:
+                new_cfg_dict = yaml.load(f, Loader=yaml.FullLoader)
+            cfg_dict.update(new_cfg_dict)
 
-        return cls(**cfg_dict)
+        return from_dict(data_class=cls, data=cfg_dict)
 
 
 @dataclass
@@ -48,10 +51,20 @@ class TrainConfig(Config):
     initial_learning_rate: float
     """Initial learning rate."""
 
-    learning_rate_decay_rate: int
-    """No. of iterations for a full exponential decay."""
+    learning_rate_decay: int
+    """No. of iterations when learning rate drops to 10% of initial value.
+        Set to zero to use constant rate."""
 
     num_iterations: int
     """No. of total iterations for training."""
+
+    @dataclass
+    class TrainIntervalConfig:
+        print: int
+        log: int
+        ckpt: int
+    
+    intervals: TrainIntervalConfig
+    """Intervals to be used during training."""
 
     default_path = 'cfgs/training/default.yaml'
