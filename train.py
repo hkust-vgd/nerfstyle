@@ -91,7 +91,7 @@ class PretrainTrainer:
             }
         }
 
-        ckpt_fn = 'iter_{:0{width}d}.pth'.format(self.iter_ctr, width=len(self.train_cfg.num_iterations))
+        ckpt_fn = 'iter_{:0{width}d}.pth'.format(self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         ckpt_path = self.log_path / ckpt_fn
 
         torch.save(ckpt_dict, ckpt_path)

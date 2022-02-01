@@ -71,3 +71,17 @@ class TrainConfig(Config):
     """Seed for NumPy / PyTorch randomized number generators."""
 
     default_path = 'cfgs/training/default.yaml'
+
+
+@dataclass
+class OccupancyGridConfig(Config):
+    grid_resolution: int
+    """Occupancy grid resolution."""
+
+    subgrid_size: int
+    """No. of cells to subdivide each grid cell during testing for occupancy."""
+
+    occupancy_threshold: float
+    """Threshold value determining if cell is occupied."""
+
+    default_path = 'cfgs/occupancy_grid.yaml'

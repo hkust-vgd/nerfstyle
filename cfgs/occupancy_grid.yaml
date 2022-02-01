@@ -1,0 +1,3 @@
+grid_resolution: 1000
+subgrid_size: 3
+occupancy_threshold: 0.5
