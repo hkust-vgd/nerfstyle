@@ -1,17 +1,25 @@
-from ast import Load
+from distutils.command import config
+from pathlib import Path
 from dataclasses import dataclass
 from dacite import from_dict
+from typing import Optional
 import yaml
 
 
 class Config:
-    default_path: str
+    default_path: Optional[str] = None
 
     @classmethod
     def load(cls, config_path=None):
-        with open(cls.default_path, 'r') as f:
-            cfg_dict = yaml.load(f, Loader=yaml.FullLoader)
-        
+        has_default = cls.default_path is not None
+        assert has_default or config_path is not None, \
+            "No default path to use, provide a specific config path"
+
+        cfg_dict = {}
+        if has_default:
+            with open(cls.default_path, 'r') as f:
+                cfg_dict = yaml.load(f, Loader=yaml.FullLoader)
+
         if config_path is not None:
             with open(config_path, 'r') as f:
                 new_cfg_dict = yaml.load(f, Loader=yaml.FullLoader)
@@ -21,17 +29,28 @@ class Config:
 
 
 @dataclass
+class DatasetConfig(Config):
+    root_path: str
+    """Root path of dataset."""
+
+    type: str
+    """Type of dataset."""
+
+
+@dataclass
 class NetworkConfig(Config):
     x_enc_count: int
-    """No. of frequencies (pairs of sines / cosines) to encode the input position."""
+    """No. of frequencies (pairs of sines / cosines) to encode the
+        input position."""
 
     d_enc_count: int
-    """No. of frequencies (pairs of sines / cosines) to encode the view direction."""
+    """No. of frequencies (pairs of sines / cosines) to encode the
+        view direction."""
 
     num_samples_per_ray: int
     """No. of samples per ray."""
 
-    network_chunk_size: int
+    pts_bsize: int
     """No. of points to be parsed by the network at the same time."""
 
     default_path = 'cfgs/network/default.yaml'
@@ -63,7 +82,7 @@ class TrainConfig(Config):
         print: int
         log: int
         ckpt: int
-    
+
     intervals: TrainIntervalConfig
     """Intervals to be used during training."""
 
@@ -75,13 +94,14 @@ class TrainConfig(Config):
 
 @dataclass
 class OccupancyGridConfig(Config):
-    grid_resolution: int
-    """Occupancy grid resolution."""
-
     subgrid_size: int
-    """No. of cells to subdivide each grid cell during testing for occupancy."""
+    """No. of cells to subdivide each grid cell during testing for
+        occupancy."""
 
-    occupancy_threshold: float
+    threshold: float
     """Threshold value determining if cell is occupied."""
+
+    voxel_bsize: int
+    """No. of voxels to handle at the same time."""
 
     default_path = 'cfgs/occupancy_grid.yaml'

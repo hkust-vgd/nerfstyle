@@ -1,4 +1,4 @@
 x_enc_count: 10
 d_enc_count: 4
 num_samples_per_ray: 384
-network_chunk_size: 65536
+pts_bsize: 65536

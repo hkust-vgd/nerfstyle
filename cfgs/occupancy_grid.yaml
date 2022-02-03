@@ -1,3 +1,3 @@
-grid_resolution: 1000
 subgrid_size: 3
-occupancy_threshold: 0.5
+threshold: 0.5
+voxel_bsize: 16384
