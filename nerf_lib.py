@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from config import NetworkConfig, TrainConfig
 from ray_batch import RayBatch
-from data.common import Intrinsics
+from utils import Intrinsics
 from networks.embedder import Embedder
 
 

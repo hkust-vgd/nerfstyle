@@ -13,17 +13,7 @@ from nerf_lib import NerfLib
 from ray_batch import RayBatch
 from networks.nerf import Nerf
 from data.nsvf_dataset import NSVFDataset
-
-
-def batch(*tensors, bsize=1):
-    for i in range(0, len(tensors[0]), bsize):
-        yield (t[i:i+bsize] for t in tensors)
-
-
-def compute_psnr(loss):
-    psnr = -10. * torch.log(loss) / torch.log(
-        torch.FloatTensor([10.]).to(loss.device))
-    return psnr
+from utils import batch, compute_psnr
 
 
 class PretrainTrainer:
@@ -64,7 +54,7 @@ class PretrainTrainer:
                                       betas=(0.9, 0.999))
 
         self.iter_ctr = 0
-        self.time0 = time.time()
+        self.time0 = 0
 
     @staticmethod
     def calc_loss(rendered, target):
@@ -82,7 +72,7 @@ class PretrainTrainer:
     def log_status(self, loss, psnr, cur_lr):
         self.writer.add_scalar('train/loss', loss.item(), self.iter_ctr)
         self.writer.add_scalar('train/psnr', psnr.item(), self.iter_ctr)
-        self.writer.add_scalar('misc/time', time.time() - self.time0,
+        self.writer.add_scalar('misc/iter_time', time.time() - self.time0,
                                self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
 
@@ -107,6 +97,7 @@ class PretrainTrainer:
         print('Saved checkpoint at {}'.format(ckpt_path))
 
     def run_iter(self):
+        self.time0 = time.time()
         img, pose = next(self.train_loader)
 
         # Generate rays

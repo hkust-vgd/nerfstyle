@@ -2,6 +2,7 @@ from distutils.command import config
 from pathlib import Path
 from dataclasses import dataclass
 from dacite import from_dict
+from dacite import Config as DaciteConfig
 from typing import Optional
 import yaml
 
@@ -25,12 +26,14 @@ class Config:
                 new_cfg_dict = yaml.load(f, Loader=yaml.FullLoader)
             cfg_dict.update(new_cfg_dict)
 
-        return from_dict(data_class=cls, data=cfg_dict)
+        types_cfg = DaciteConfig(type_hooks={
+            Path: lambda p: Path(p).expanduser()})
+        return from_dict(data_class=cls, data=cfg_dict, config=types_cfg)
 
 
 @dataclass
 class DatasetConfig(Config):
-    root_path: str
+    root_path: Path
     """Root path of dataset."""
 
     type: str
