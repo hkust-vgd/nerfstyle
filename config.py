@@ -9,6 +9,7 @@ import yaml
 
 class Config:
     default_path: Optional[str] = None
+    print_col_width: int = 20
 
     @classmethod
     def load(cls, config_path=None):
@@ -27,8 +28,14 @@ class Config:
             cfg_dict.update(new_cfg_dict)
 
         types_cfg = DaciteConfig(type_hooks={
-            Path: lambda p: Path(p).expanduser()})
+            Path: lambda p: Path(p).expanduser(),
+            tuple: tuple
+        })
         return from_dict(data_class=cls, data=cfg_dict, config=types_cfg)
+
+    def print(self):
+        for k, v in self.__dict__.items():
+            print('{: <{width}}| {}'.format(k, v, width=self.print_col_width))
 
 
 @dataclass
@@ -38,6 +45,9 @@ class DatasetConfig(Config):
 
     type: str
     """Type of dataset."""
+
+    grid_res: tuple
+    """Occupancy grid resolution for each dimension."""
 
 
 @dataclass

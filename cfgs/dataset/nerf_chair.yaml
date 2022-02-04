@@ -1,2 +1,6 @@
 root_path: ~/datasets/nsvf/Synthetic_NeRF/Chair/
 type: nsvf_dataset
+grid_res:
+- 208
+- 208
+- 256
