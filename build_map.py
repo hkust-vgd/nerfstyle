@@ -79,12 +79,12 @@ def main():
         out = out.reshape(grid_cfg.voxel_bsize, points_per_voxel)
         vals.append(torch.any(out > grid_cfg.threshold, dim=1))
 
-    map = torch.concat(vals).reshape(dataset_cfg.grid_res).cpu()
-    count = torch.sum(map).item()
+    occ_map = torch.concat(vals).reshape(dataset_cfg.grid_res).cpu()
+    count = torch.sum(occ_map).item()
     logger.info('{} out of {} voxels ({:.2f}%) are occupied'.format(
         count, len(all_samples), count * 100 / len(all_samples)))
 
-    np.savez_compressed(save_path, {'map': map.numpy()})
+    np.savez_compressed(save_path, map=occ_map.numpy())
     logger.info('Saved to "{}".'.format(save_path))
 
 

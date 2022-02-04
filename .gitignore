@@ -1,4 +1,5 @@
 .vscode
+.ipynb_checkpoints
 runs
 __pycache__
 sync_super.sh
