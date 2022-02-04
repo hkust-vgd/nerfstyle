@@ -1,1 +1,2 @@
 learning_rate_decay: 500000
+num_iterations: 600000

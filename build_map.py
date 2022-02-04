@@ -19,14 +19,8 @@ def main():
     logger = create_logger(__name__)
 
     net_cfg = NetworkConfig.load()
-
     dataset_cfg = DatasetConfig.load(args.dataset_cfg)
-    logger.info('Loaded dataset config file')
-    dataset_cfg.print()
-
     grid_cfg = OccupancyGridConfig.load()
-    logger.info('Loaded occupancy grid config file')
-    grid_cfg.print()
 
     bbox_path = dataset_cfg.root_path / 'bbox.txt'
     bbox_min, bbox_max = load_matrix(bbox_path)[0, :-1].reshape(2, 3)
@@ -73,7 +67,8 @@ def main():
 
     vals = []
     logger.info('Computing occupancy grid...')
-    for voxels_batch in batch(all_samples, bsize=grid_cfg.voxel_bsize):
+    for voxels_batch in batch(all_samples, bsize=grid_cfg.voxel_bsize,
+                              progress=True):
         voxels_embedded = lib.embed_x(voxels_batch.reshape(-1, 3))
         _, out = model(voxels_embedded, dummy_dirs[:len(voxels_embedded)])
         out = out.reshape(grid_cfg.voxel_bsize, points_per_voxel)

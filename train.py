@@ -1,6 +1,7 @@
 import argparse
 from itertools import cycle
 from pathlib import Path
+import sys
 import time
 
 import numpy as np
@@ -13,11 +14,15 @@ from nerf_lib import NerfLib
 from ray_batch import RayBatch
 from networks.nerf import Nerf
 from data.nsvf_dataset import NSVFDataset
-from utils import batch, compute_psnr
+from utils import batch, compute_psnr, create_logger
 
 
 class PretrainTrainer:
     def __init__(self, args):
+        self.logger = create_logger(__name__)
+        self.iter_ctr = 0
+        self.time0 = 0
+
         self.dataset_cfg = DatasetConfig.load(args.dataset_cfg)
         self.net_cfg = NetworkConfig.load()
         self.train_cfg = TrainConfig.load(
@@ -41,20 +46,24 @@ class PretrainTrainer:
         d_enc_channels = 2 * d_channels * self.net_cfg.d_enc_count + d_channels
         self.model = Nerf(x_enc_channels, d_enc_channels,
                           8, 256, [256, 128], [5]).to(self.device)
-
-        # Initialize dataset
-        self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
-        self.train_loader = cycle(DataLoader(self.train_set, batch_size=None,
-                                             shuffle=True))
-        print('Loaded', self.train_set)
+        self.logger.info('Created model ' + str(self.model))
 
         # Initialize optimizer
         self.optim = torch.optim.Adam(params=self.model.parameters(),
                                       lr=self.train_cfg.initial_learning_rate,
                                       betas=(0.9, 0.999))
 
-        self.iter_ctr = 0
-        self.time0 = 0
+        # Load checkpoint if provided
+        if args.ckpt_path is None:
+            self.logger.info('Training model from scratch')
+        else:
+            self.load_ckpt(args.ckpt_path)
+
+        # Initialize dataset
+        self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
+        self.train_loader = cycle(DataLoader(self.train_set, batch_size=None,
+                                             shuffle=True))
+        self.logger.info('Loaded ' + str(self.train_set))
 
     @staticmethod
     def calc_loss(rendered, target):
@@ -65,9 +74,9 @@ class PretrainTrainer:
         return (self.iter_ctr % interval == 0) and (self.iter_ctr > after)
 
     def print_status(self, loss, psnr):
-        # TODO: Use logging class
         log_str = '[TRAIN] Iter: {:d}, Loss: {:.5f}, PSNR: {:.5f}'
-        print(log_str.format(self.iter_ctr, loss.item(), psnr.item()))
+        self.logger.info(log_str.format(
+            self.iter_ctr, loss.item(), psnr.item()))
 
     def log_status(self, loss, psnr, cur_lr):
         self.writer.add_scalar('train/loss', loss.item(), self.iter_ctr)
@@ -75,6 +84,28 @@ class PretrainTrainer:
         self.writer.add_scalar('misc/iter_time', time.time() - self.time0,
                                self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
+
+    def load_ckpt(self, ckpt_path):
+        try:
+            ckpt = torch.load(ckpt_path)
+            self.iter_ctr = ckpt['iter']
+            self.model.load_state_dict(ckpt['model'])
+            self.optim.load_state_dict(ckpt['optim'])
+
+            rng_states = ckpt['rng_states']
+            np.random.set_state(rng_states['np'])
+            torch.set_rng_state(rng_states['torch'])
+            torch.cuda.set_rng_state(rng_states['torch_cuda'])
+
+        except FileNotFoundError:
+            self.logger.error(
+                'Checkpoint file \"{}\" not found'.format(ckpt_path))
+        except KeyError:
+            self.logger.error(
+                'Checkpoint file \"{}\" has invalid format'.format(ckpt_path))
+
+        self.logger.info('Loaded checkpoint \"{}\"'.format(ckpt_path))
+        self.logger.info('Model now at iteration #{:d}'.format(self.iter_ctr))
 
     def save_ckpt(self):
         ckpt_dict = {
@@ -93,8 +124,7 @@ class PretrainTrainer:
         ckpt_path = self.log_path / ckpt_fn
 
         torch.save(ckpt_dict, ckpt_path)
-        # TODO: Use logging class
-        print('Saved checkpoint at {}'.format(ckpt_path))
+        self.logger.info('Saved checkpoint at {}'.format(ckpt_path))
 
     def run_iter(self):
         self.time0 = time.time()
@@ -167,6 +197,7 @@ def train():
     parser.add_argument('--mode', choices=['pretrain', 'distill', 'finetune'],
                         default='pretrain')
     parser.add_argument('--name', default='tmp')
+    parser.add_argument('--ckpt-path')
 
     args = parser.parse_args()
     trainer = PretrainTrainer(args)

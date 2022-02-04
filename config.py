@@ -1,15 +1,29 @@
-from distutils.command import config
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from dacite import from_dict
 from dacite import Config as DaciteConfig
 from typing import Optional
 import yaml
+from utils import create_logger
+
+
+logger = create_logger(__name__)
+
+
+def flatten(d: dict, delim: str = '.'):
+    items = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            subitems = {k + delim + sk: sv for sk, sv in flatten(v).items()}
+            items.update(subitems)
+        else:
+            items[k] = v
+    return items
 
 
 class Config:
     default_path: Optional[str] = None
-    print_col_width: int = 20
+    print_col_width: int = 30
 
     @classmethod
     def load(cls, config_path=None):
@@ -31,11 +45,17 @@ class Config:
             Path: lambda p: Path(p).expanduser(),
             tuple: tuple
         })
-        return from_dict(data_class=cls, data=cfg_dict, config=types_cfg)
+
+        obj = from_dict(data_class=cls, data=cfg_dict, config=types_cfg)
+        logger.info('Loaded the following {} options:'.format(cls.__name__))
+        obj.print()
+
+        return obj
 
     def print(self):
-        for k, v in self.__dict__.items():
-            print('{: <{width}}| {}'.format(k, v, width=self.print_col_width))
+        for k, v in flatten(asdict(self)).items():
+            print('{: <{width}}| {}'.format(
+                k, str(v), width=self.print_col_width))
 
 
 @dataclass

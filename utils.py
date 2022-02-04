@@ -8,7 +8,7 @@ from tqdm import tqdm
 Intrinsics = namedtuple('Intrinsics', ['h', 'w', 'fx', 'fy', 'cx', 'cy'])
 
 
-def batch(*tensors, bsize=1, progress=True):
+def batch(*tensors, bsize=1, progress=False):
     batch_range = range(0, len(tensors[0]), bsize)
     if progress:
         batch_range = tqdm(batch_range)
@@ -31,10 +31,20 @@ def load_matrix(path):
     return np.array(vals).astype(np.float32)
 
 
+class ExitHandler(logging.StreamHandler):
+    def __init__(self, stream=None):
+        super(ExitHandler, self).__init__(stream)
+
+    def emit(self, record):
+        super(ExitHandler, self).emit(record)
+        if record.levelno >= logging.ERROR:
+            sys.exit(1)
+
+
 def create_logger(name, level='info'):
     logger = logging.getLogger(name)
     logger.setLevel(level.upper())
-    handler = logging.StreamHandler(sys.stdout)
+    handler = ExitHandler(sys.stdout)
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
