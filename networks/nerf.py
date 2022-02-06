@@ -4,16 +4,19 @@ import torch.nn.functional as F
 
 
 class Nerf(nn.Module):
-    def __init__(self, x_channels, d_channels, x_layers, x_width, d_widths, skip=()):
+    def __init__(self, x_channels, d_channels, x_layers,
+                 x_width, d_widths, skip=()):
+        """NeRF MLP network.
+
+        Args:
+            x_channels (int): No. of position channels, after encoding.
+            d_channels (int): No. of direction channels, after encoding.
+            x_layers (int): No. of MLP layers before density output.
+            x_width (int): MLP layer common width before density output.
+            d_widths (list): MLP layer widths after density output.
+            skip (tuple, optional): Layers indices with input skip connection.
         """
-        NeRF MLP network.
-        :param x_channels:  No. of channels for point position, after encoding.
-        :param d_channels:  No. of channels for view direction, after encoding.
-        :param x_layers:    No. of MLP layers before density output.
-        :param x_width:     MLP layer common width before density output.
-        :param d_widths:    MLP layer widths after density output.
-        :param skip:        Layers indices with input skip connection.
-        """
+
         super(Nerf, self).__init__()
         self.skip = skip
 
@@ -21,11 +24,13 @@ class Nerf(nn.Module):
         in_channels, out_channels = channels[:-1], channels[1:]
         for i in skip:
             in_channels[i] += x_channels
-        self.x_layers = nn.ModuleList([nn.Linear(i, j) for i, j in zip(in_channels, out_channels)])
+        self.x_layers = nn.ModuleList(
+            [nn.Linear(i, j) for i, j in zip(in_channels, out_channels)])
 
         in_channels, out_channels = d_widths[:-1], d_widths[1:]
         in_channels[0] += d_channels
-        self.d_layers = nn.ModuleList([nn.Linear(i, j) for i, j in zip(in_channels, out_channels)])
+        self.d_layers = nn.ModuleList(
+            [nn.Linear(i, j) for i, j in zip(in_channels, out_channels)])
 
         self.x2d_layer = nn.Linear(x_width, d_widths[0])
         self.a_layer = nn.Linear(x_width, 1)
@@ -35,7 +40,7 @@ class Nerf(nn.Module):
         out = x
         for i, layer in enumerate(self.x_layers):
             if i in self.skip:
-                out = torch.cat([out, x], dim=-1)
+                out = torch.cat([x, out], dim=-1)
             out = F.relu(layer(out))
 
         a = self.a_layer(out)

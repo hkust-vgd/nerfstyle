@@ -35,10 +35,15 @@ class NerfLib:
 
         i, j = np.meshgrid(x_coords, y_coords, indexing='xy')
         # K_inv * (u, v, 1)
-        dirs = np.stack([(i - intr.cx) / intr.fx, -(j - intr.cy) / intr.fy, -np.ones_like(i)], -1)
+        dirs = np.stack([
+            (i - intr.cx) / intr.fx,
+            -(j - intr.cy) / intr.fy,
+            np.ones_like(i)
+        ], -1)
         rays_d = np.einsum('ij, hwj -> hwi', pose[:3, :3], dirs).reshape(-1, 3)
 
-        indices = np.random.choice(np.arange(w * h), self.train_cfg.num_rays_per_batch, replace=False)
+        indices = np.random.choice(
+            np.arange(w * h), self.train_cfg.num_rays_per_batch, replace=False)
         rays_coords = (indices // h + dy, indices % h + dx)
 
         rays_d = torch.FloatTensor(rays_d[indices]).to(self.device)
@@ -47,8 +52,18 @@ class NerfLib:
         return rays_o, rays_d, rays_coords
 
     def sample_points(self, rays: RayBatch):
+        """Given a batch of N rays, sample K points per ray.
+
+        Args:
+            rays (RayBatch): Ray batch of size N.
+
+        Returns:
+            pts (ndarray[N, K, 3]): Coordinates of the samples.
+            dists (ndarray[N, K]): Distances between samples.
+        """
         n_samples = self.net_cfg.num_samples_per_ray
-        z_vals = torch.linspace(rays.near, rays.far, steps=(n_samples + 1)).to(self.device)
+        z_vals = torch.linspace(rays.near, rays.far, steps=(
+            n_samples + 1)).to(self.device)
         z_vals = z_vals.expand([len(rays), n_samples + 1])
 
         lower = z_vals[:, :-1]
@@ -57,22 +72,32 @@ class NerfLib:
         z_vals = lower + (upper - lower) * t_rand
         pts = rays.lerp(z_vals)
 
-        dists = (z_vals[..., 1:] - z_vals[..., :-1]) * torch.norm(rays.dests, dim=-1, keepdim=True)
-        dists = torch.cat([dists, torch.ones((len(dists), 1)).to(self.device) * 1e10], dim=-1)
+        dists = (z_vals[..., 1:] - z_vals[..., :-1]) * \
+            torch.norm(rays.dests, dim=-1, keepdim=True)
+        dists = torch.cat([dists, torch.ones(
+            (len(dists), 1)).to(self.device) * 1e10], dim=-1)
         return pts, dists
 
     def integrate_points(self, dists, rgbs, densities):
+        """Evaluate the volumetric rendering equation for N rays, each with
+        K samples.
+
+        Args:
+            dists (ndarray[N, K]): Distances between samples.
+            rgbs (ndarray[N, K, 3]): Colors of the samples.
+            densities (ndarray[N, K]): Densities of the samples.
+
+        Returns:
+            ndarray[N, 3]: Evaluation results.
         """
-        Evaluate the volumetric rendering equation for multiple rays.
-        :param dists:       (N, K) array of distances between samples
-        :param rgbs:        (N, K, 3) array of sampled colors
-        :param densities:   (N, K) array of sampled densities
-        :return:            (N, 3) array of colors
-        """
+
         alpha = 1. - torch.exp(-F.relu(densities) * dists)
         # 1, (1 - a_1), ..., (1 - a_(K-1))
-        alpha_tmp = torch.cat([torch.ones((len(alpha), 1)).to(self.device), (1. - alpha[:, :-1])], dim=-1)
-        transmittance = torch.cumprod(alpha_tmp, dim=-1)
-        rgb_map = torch.sum((alpha * transmittance).unsqueeze(-1) * rgbs, dim=1)
+        alpha_tmp = torch.cat([
+            torch.ones((len(alpha), 1)).to(self.device),
+            (1. - alpha[:, :-1])
+        ], dim=-1)
+        ts = torch.cumprod(alpha_tmp, dim=-1)
+        rgb_map = torch.sum((alpha * ts).unsqueeze(-1) * rgbs, dim=1)
 
         return rgb_map
