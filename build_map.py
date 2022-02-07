@@ -51,7 +51,12 @@ def main():
     # Load embedders and model
     lib = NerfLib(net_cfg, None, device)
 
-    ckpt = torch.load(args.weights_path)['model']
+    try:
+        ckpt = torch.load(args.weights_path)['model']
+    except FileNotFoundError:
+        logger.error(
+            'Checkpoint file \"{}\" not found'.format(args.weights_path))
+
     x_channels, d_channels = 3, 3
     x_enc_channels = 2 * x_channels * net_cfg.x_enc_count + x_channels
     d_enc_channels = 2 * d_channels * net_cfg.d_enc_count + d_channels

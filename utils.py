@@ -26,6 +26,23 @@ def compute_psnr(loss):
     return psnr
 
 
+def create_logger(name, level='info'):
+    logger = logging.getLogger(name)
+    logger.setLevel(level.upper())
+    handler = ExitHandler(sys.stdout)
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
+
+
+def cycle(iterable):
+    while True:
+        for i in iterable:
+            yield i
+
+
 def load_matrix(path):
     vals = [[float(w) for w in line.strip().split()] for line in open(path)]
     return np.array(vals).astype(np.float32)
@@ -39,14 +56,3 @@ class ExitHandler(logging.StreamHandler):
         super(ExitHandler, self).emit(record)
         if record.levelno >= logging.ERROR:
             sys.exit(1)
-
-
-def create_logger(name, level='info'):
-    logger = logging.getLogger(name)
-    logger.setLevel(level.upper())
-    handler = ExitHandler(sys.stdout)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    return logger

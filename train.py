@@ -1,7 +1,5 @@
 import argparse
-from itertools import cycle
 from pathlib import Path
-import sys
 import time
 
 import numpy as np
@@ -14,7 +12,7 @@ from nerf_lib import NerfLib
 from ray_batch import RayBatch
 from networks.nerf import Nerf
 from data.nsvf_dataset import NSVFDataset
-from utils import batch, compute_psnr, create_logger
+from utils import batch, compute_psnr, create_logger, cycle
 
 
 class PretrainTrainer:
