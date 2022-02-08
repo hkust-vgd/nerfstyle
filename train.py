@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 import time
+from tkinter import N
 
 import numpy as np
 import torch
@@ -16,15 +17,19 @@ from utils import batch, compute_psnr, create_logger, cycle
 
 
 class PretrainTrainer:
-    def __init__(self, args):
+    def __init__(self, args, nargs):
         self.logger = create_logger(__name__)
         self.iter_ctr = 0
         self.time0 = 0
 
-        self.dataset_cfg = DatasetConfig.load(args.dataset_cfg)
-        self.net_cfg = NetworkConfig.load()
-        self.train_cfg = TrainConfig.load(
-            'cfgs/training/{}.yaml'.format(args.mode))
+        # Parse args
+        self.dataset_cfg, nargs = DatasetConfig.load(
+            args.dataset_cfg, nargs=nargs)
+        self.net_cfg, nargs = NetworkConfig.load(nargs=nargs)
+        self.train_cfg, nargs = TrainConfig.load(
+            'cfgs/training/{}.yaml'.format(args.mode), nargs=nargs)
+        if len(nargs) > 0:
+            self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 
         self.name = args.name
         self.log_path: Path = Path('./runs') / self.name
@@ -197,8 +202,8 @@ def train():
     parser.add_argument('--name', default='tmp')
     parser.add_argument('--ckpt-path')
 
-    args = parser.parse_args()
-    trainer = PretrainTrainer(args)
+    args, nargs = parser.parse_known_args()
+    trainer = PretrainTrainer(args, nargs)
     trainer.run()
 
 

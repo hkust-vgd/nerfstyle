@@ -1,4 +1,5 @@
 from pathlib import Path
+from argparse import ArgumentParser
 from dataclasses import dataclass, asdict
 from dacite import from_dict
 from dacite import Config as DaciteConfig
@@ -26,7 +27,7 @@ class Config:
     print_col_width: int = 30
 
     @classmethod
-    def load(cls, config_path=None):
+    def load(cls, config_path=None, nargs=None):
         has_default = cls.default_path is not None
         assert has_default or config_path is not None, \
             "No default path to use, provide a specific config path"
@@ -46,10 +47,26 @@ class Config:
             tuple: tuple
         })
 
+        # Overwrite arguments on-the-fly
+        def _argnames(k: str):
+            names = ['--' + k]
+            if '_' in k:
+                names += ['--' + k.replace('_', '-')]
+            return names
+
+        if nargs is not None and len(nargs) > 0:
+            parser = ArgumentParser()
+            for k, v in cfg_dict.items():
+                parser.add_argument(*_argnames(k), type=type(v), default=v)
+            args, nargs = parser.parse_known_args(nargs)
+            cfg_dict.update(vars(args))
+
         obj = from_dict(data_class=cls, data=cfg_dict, config=types_cfg)
         logger.info('Loaded the following {} options:'.format(cls.__name__))
         obj.print()
 
+        if nargs is not None:
+            return obj, nargs
         return obj
 
     def print(self):
