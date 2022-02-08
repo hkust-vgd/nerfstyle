@@ -32,6 +32,7 @@ class NSVFDataset(Dataset):
         self.imgs = np.stack([_parse_rgb(path) for path in self.rgb_paths])
         self.poses = np.stack([load_matrix(path) for path in self.pose_paths],
                               axis=0)
+        self.poses[:, :3, 1:3] = -self.poses[:, :3, 1:3]
 
         # Convert alpha to white
         assert self.imgs.shape[-1] == 4
@@ -52,6 +53,8 @@ class NSVFDataset(Dataset):
         # self.far = np.amax(np.linalg.norm(pts - furthest_pts, axis=1))
 
         self.near, self.far = load_matrix(nf_path)[0]
+
+        self.bg_color = np.ones(3, dtype=np.float32)
 
     def __getitem__(self, index):
         return self.imgs[index], self.poses[index]

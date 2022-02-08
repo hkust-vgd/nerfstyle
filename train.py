@@ -127,16 +127,14 @@ class PretrainTrainer:
     def run_iter(self):
         self.time0 = time.time()
         img, pose = next(self.train_loader)
+        img, pose = img.to(self.device), pose.to(self.device)
 
         # Generate rays
         precrop = None
         if self.iter_ctr < self.train_cfg.precrop_iterations:
             precrop = self.train_cfg.precrop_fraction
-        rays_o, rays_d, coords = self.lib.generate_rays(
-            self.train_set.intrinsics, pose, precrop=precrop)
-        target = torch.FloatTensor(img[coords]).to(self.device)
-        rays = RayBatch(rays_o, rays_d, self.train_set.near,
-                        self.train_set.far)
+        target, rays = self.lib.generate_rays(
+            img, pose, self.train_set, precrop=precrop)
 
         # Render rays
         pts, dists = self.lib.sample_points(rays)
@@ -158,7 +156,9 @@ class PretrainTrainer:
         # Compute loss and update weights
         rgbs = torch.concat(rgbs, dim=0).reshape(pts.shape)
         densities = torch.concat(densities, dim=0).reshape(pts.shape[:-1])
-        rgb_map = self.lib.integrate_points(dists, rgbs, densities)
+        bg_color = torch.tensor(self.train_set.bg_color).to(self.device)
+
+        rgb_map = self.lib.integrate_points(dists, rgbs, densities, bg_color)
         loss = self.calc_loss(rendered=rgb_map, target=target)
         psnr = compute_psnr(loss)
 

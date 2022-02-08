@@ -1,8 +1,12 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from einops import reduce
+from typing import Any, Optional, Tuple
+from torchtyping import TensorType
 
 from config import NetworkConfig, TrainConfig
+from data.nsvf_dataset import NSVFDataset as Dataset
 from ray_batch import RayBatch
 from utils import Intrinsics
 from networks.embedder import Embedder
@@ -22,11 +26,34 @@ class NerfLib:
     def embed_d(self, d):
         return self.d_embedder(d)
 
-    def generate_rays(self, intr: Intrinsics, pose, precrop=None):
+    def generate_rays(
+        self,
+        img: TensorType['H', 'W', 3],
+        pose: TensorType[4, 4],
+        dataset: Dataset,
+        precrop: Optional[float] = None
+    ) -> Tuple[TensorType['K', 3], RayBatch]:
+        """Generate a batch of rays.
+
+        Args:
+            img (TensorType['h', 'w', 3]): Image tensor.
+            pose (TensorType[4, 4]): Camera pose tensor.
+            dataset (Dataset): Dataset object.
+            precrop (Optional[float]): Precrop factor; None if not used.
+
+        Returns:
+            target (TensorType['K', 3]): Pixel values corresponding to rays.
+            rays (RayBatch): A batch of K rays.
+        """
+
+        intr = dataset.intrinsics
+        near, far = dataset.near, dataset.far
+
         x_coords = np.arange(intr.w, dtype=np.float32)
         y_coords = np.arange(intr.h, dtype=np.float32)
         w, h = intr.w, intr.h
         dx, dy = 0, 0
+        pose_r, pose_t = pose[:3, :3], pose[:3, 3]
 
         if precrop is not None:
             w, h = int(intr.w * precrop), int(intr.h * precrop)
@@ -34,32 +61,38 @@ class NerfLib:
             x_coords, y_coords = x_coords[dx:dx+w], y_coords[dy:dy+h]
 
         i, j = np.meshgrid(x_coords, y_coords, indexing='xy')
-        # K_inv * (u, v, 1)
-        dirs = np.stack([
+        # Transform by inverse intrinsic matrix
+        dirs = torch.FloatTensor(np.stack([
             (i - intr.cx) / intr.fx,
             -(j - intr.cy) / intr.fy,
-            np.ones_like(i)
-        ], -1)
-        rays_d = np.einsum('ij, hwj -> hwi', pose[:3, :3], dirs).reshape(-1, 3)
+            -np.ones_like(i)
+        ], axis=-1)).to(self.device)
 
-        indices = np.random.choice(
+        # Transform by camera pose (camera to world coords)
+        rays_d = torch.einsum('ij, hwj -> hwi', pose_r, dirs)
+
+        indices_1d = np.random.choice(
             np.arange(w * h), self.train_cfg.num_rays_per_batch, replace=False)
-        rays_coords = (indices // h + dy, indices % h + dx)
+        indices_2d = (indices_1d // h, indices_1d % h)
+        coords = (indices_2d[0] + dy, indices_2d[1] + dx)
+        rays_d = rays_d[indices_2d]
 
-        rays_d = torch.FloatTensor(rays_d[indices]).to(self.device)
-        rays_o = torch.FloatTensor(pose[:3, -1]).to(self.device)
+        target = img[coords]
+        rays = RayBatch(pose_t, rays_d, near, far)
+        return target, rays
 
-        return rays_o, rays_d, rays_coords
-
-    def sample_points(self, rays: RayBatch):
+    def sample_points(
+        self,
+        rays: RayBatch
+    ) -> Tuple[TensorType['N', 'K', 3], TensorType['N', 'K']]:
         """Given a batch of N rays, sample K points per ray.
 
         Args:
             rays (RayBatch): Ray batch of size N.
 
         Returns:
-            pts (ndarray[N, K, 3]): Coordinates of the samples.
-            dists (ndarray[N, K]): Distances between samples.
+            pts (TensorType[N, K, 3]): Coordinates of the samples.
+            dists (TensorType[N, K]): Distances between samples.
         """
         n_samples = self.net_cfg.num_samples_per_ray
         z_vals = torch.linspace(rays.near, rays.far, steps=(
@@ -78,14 +111,21 @@ class NerfLib:
             (len(dists), 1)).to(self.device) * 1e10], dim=-1)
         return pts, dists
 
-    def integrate_points(self, dists, rgbs, densities):
+    def integrate_points(
+        self,
+        dists: TensorType['N', 'K'],
+        rgbs: TensorType['N', 'K', 3],
+        densities: TensorType['N', 'K'],
+        bg_color: TensorType[3]
+    ) -> TensorType['N', 3]:
         """Evaluate the volumetric rendering equation for N rays, each with
         K samples.
 
         Args:
-            dists (ndarray[N, K]): Distances between samples.
-            rgbs (ndarray[N, K, 3]): Colors of the samples.
-            densities (ndarray[N, K]): Densities of the samples.
+            dists (TensorType[N, K]): Distances between samples.
+            rgbs (TensorType[N, K, 3]): Colors of the samples.
+            densities (TensorType[N, K]): Densities of the samples.
+            bg_color (TensorType[3]): Background color.
 
         Returns:
             ndarray[N, 3]: Evaluation results.
@@ -98,6 +138,10 @@ class NerfLib:
             (1. - alpha[:, :-1])
         ], dim=-1)
         ts = torch.cumprod(alpha_tmp, dim=-1)
-        rgb_map = torch.sum((alpha * ts).unsqueeze(-1) * rgbs, dim=1)
+        weights = alpha * ts  # (N, K)
+        rgb_map = reduce(weights[..., None] * rgbs, 'n k c -> n c', 'sum')
+        acc_map = reduce(weights, 'n k -> n', 'sum')
 
+        res = (1 - acc_map)[..., None]
+        rgb_map = rgb_map + res * bg_color
         return rgb_map
