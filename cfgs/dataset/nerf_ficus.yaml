@@ -1,0 +1,6 @@
+root_path: ~/datasets/nsvf/Synthetic_NeRF/Ficus/
+type: nsvf_dataset
+grid_res:
+- 128
+- 176
+- 256

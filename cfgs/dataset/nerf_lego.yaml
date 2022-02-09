@@ -1,0 +1,6 @@
+root_path: ~/datasets/nsvf/Synthetic_NeRF/Lego/
+type: nsvf_dataset
+grid_res:
+- 144
+- 256
+- 160

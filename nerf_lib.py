@@ -2,13 +2,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from einops import reduce
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 from torchtyping import TensorType
 
 from config import NetworkConfig, TrainConfig
 from data.nsvf_dataset import NSVFDataset as Dataset
 from ray_batch import RayBatch
-from utils import Intrinsics
 from networks.embedder import Embedder
 
 
@@ -128,7 +127,7 @@ class NerfLib:
             bg_color (TensorType[3]): Background color.
 
         Returns:
-            ndarray[N, 3]: Evaluation results.
+            TensorType[N, 3]: Evaluation results.
         """
 
         alpha = 1. - torch.exp(-F.relu(densities) * dists)
