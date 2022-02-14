@@ -5,7 +5,7 @@ import torch
 
 from config import DatasetConfig, NetworkConfig, OccupancyGridConfig
 from networks.nerf import create_single_nerf
-from utils import load_matrix, batch, create_logger
+from utils import load_ckpt_path, load_matrix, batch, create_logger
 from nerf_lib import NerfLib
 
 
@@ -51,12 +51,7 @@ def main():
     # Load embedders and model
     lib = NerfLib(net_cfg, None, device)
 
-    try:
-        ckpt = torch.load(args.weights_path)['model']
-    except FileNotFoundError:
-        logger.error(
-            'Checkpoint file \"{}\" not found'.format(args.weights_path))
-
+    ckpt = load_ckpt_path(args.weights_path, logger)
     model = create_single_nerf(net_cfg).to(device)
     model.load_state_dict(ckpt)
     model.eval()

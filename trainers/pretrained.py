@@ -1,38 +1,15 @@
 import time
-
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 
-from config import DatasetConfig, NetworkConfig, TrainConfig
-from nerf_lib import NerfLib
 from networks.nerf import create_single_nerf
-from data.nsvf_dataset import NSVFDataset
-from utils import batch, compute_psnr, cycle
-
+from utils import batch, compute_psnr
 from .base import Trainer
 
 
 class PretrainTrainer(Trainer):
     def __init__(self, args, nargs):
         super().__init__(__name__, args, nargs)
-
-        # Parse args
-        self.dataset_cfg, nargs = DatasetConfig.load(
-            args.dataset_cfg, nargs=nargs)
-        self.net_cfg, nargs = NetworkConfig.load(nargs=nargs)
-        self.train_cfg, nargs = TrainConfig.load(
-            'cfgs/training/{}.yaml'.format(args.mode), nargs=nargs)
-        if len(nargs) > 0:
-            self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
-
-        self.lib = NerfLib(self.net_cfg, self.train_cfg, self.device)
-        self.writer = SummaryWriter(log_dir=self.log_path)
-
-        np.random.seed(self.train_cfg.rng_seed)
-        torch.manual_seed(self.train_cfg.rng_seed)
-        torch.cuda.manual_seed(self.train_cfg.rng_seed)
 
         # Initialize model
         self.model = create_single_nerf(self.net_cfg).to(self.device)
@@ -48,12 +25,6 @@ class PretrainTrainer(Trainer):
             self.logger.info('Training model from scratch')
         else:
             self.load_ckpt(args.ckpt_path)
-
-        # Initialize dataset
-        self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
-        self.train_loader = cycle(DataLoader(self.train_set, batch_size=None,
-                                             shuffle=True))
-        self.logger.info('Loaded ' + str(self.train_set))
 
     @staticmethod
     def calc_loss(rendered, target):

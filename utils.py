@@ -1,8 +1,10 @@
 from collections import namedtuple
 import logging
 import sys
+from typing import List
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 Intrinsics = namedtuple('Intrinsics', ['h', 'w', 'fx', 'fy', 'cx', 'cy'])
@@ -18,6 +20,12 @@ def batch(*tensors, bsize=1, progress=False):
         if len(tensors) == 1:
             out = out[0]
         yield out
+
+
+def batch_cat(*tensor_lists, dim=0, reshape=None) -> List[torch.Tensor]:
+    if reshape is None:
+        return [torch.cat(tl, dim=dim) for tl in tensor_lists]
+    return [torch.cat(tl, dim=dim).reshape(reshape) for tl in tensor_lists]
 
 
 def compute_psnr(loss):
@@ -43,9 +51,35 @@ def cycle(iterable):
             yield i
 
 
+def density2alpha(densities, dists) -> torch.Tensor:
+    return 1. - torch.exp(-F.relu(densities) * dists)
+
+
+def get_random_pts(n, min_pt, max_pt):
+    pts = np.stack([
+        np.random.uniform(min_pt[i], max_pt[i], size=(n,)) for i in range(3)
+    ], axis=1)
+    return pts
+
+
+def get_random_dirs(n):
+    random_dirs = np.random.randn(n, 3)
+    random_dirs /= np.linalg.norm(random_dirs, axis=1).reshape(-1, 1)
+    return random_dirs
+
+
 def load_matrix(path):
     vals = [[float(w) for w in line.strip().split()] for line in open(path)]
     return np.array(vals).astype(np.float32)
+
+
+def load_ckpt_path(path, logger):
+    try:
+        ckpt = torch.load(path)['model']
+    except FileNotFoundError:
+        logger.error(
+            'Checkpoint file \"{}\" not found'.format(path))
+    return ckpt
 
 
 class ExitHandler(logging.StreamHandler):

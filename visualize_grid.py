@@ -1,3 +1,4 @@
+import itertools
 import sys
 import numpy as np
 import open3d as o3d
@@ -5,12 +6,8 @@ import open3d as o3d
 
 def main():
     grid = np.load(sys.argv[1])['map']
-    height, width, depth = grid.shape
-    pts = [[h, w, d]
-           for h in range(height)
-           for w in range(width)
-           for d in range(depth)
-           if grid[h, w, d]]
+    pts_range = itertools.product(*[range(ax) for ax in grid.shape])
+    pts = [pt for pt in pts_range if grid[pt]]
     pts = np.array(pts)
 
     pcd = o3d.geometry.PointCloud()

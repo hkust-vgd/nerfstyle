@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-import torch.nn.functional as F
 from einops import reduce
 from typing import Optional, Tuple
 from torchtyping import TensorType
@@ -9,6 +8,7 @@ from config import NetworkConfig, TrainConfig
 from data.nsvf_dataset import NSVFDataset as Dataset
 from ray_batch import RayBatch
 from networks.embedder import Embedder
+import utils
 
 
 class NerfLib:
@@ -130,7 +130,7 @@ class NerfLib:
             TensorType[N, 3]: Evaluation results.
         """
 
-        alpha = 1. - torch.exp(-F.relu(densities) * dists)
+        alpha = utils.density2alpha(densities, dists)
         # 1, (1 - a_1), ..., (1 - a_(K-1))
         alpha_tmp = torch.cat([
             torch.ones((len(alpha), 1)).to(self.device),

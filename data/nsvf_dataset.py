@@ -11,7 +11,7 @@ class NSVFDataset(Dataset):
         rgb_dir = self.root / 'rgb'
         pose_dir = self.root / 'pose'
         intrinsics_path = self.root / 'intrinsics.txt'
-        # bbox_path = self.root / 'bbox.txt'
+        bbox_path = self.root / 'bbox.txt'
         nf_path = self.root / 'near_and_far.txt'
 
         assert self.root.exists(), \
@@ -44,7 +44,9 @@ class NSVFDataset(Dataset):
             f, cx, cy, _ = map(float, file.readline().split())
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-        # bbox_min, bbox_max = load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+        self.bbox_min, self.bbox_max = \
+            load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+
         # bbox_center = (bbox_min + bbox_max) / 2
         # pts = self.poses[:, :3, -1]
         # closest_pts = np.clip(pts, bbox_min, bbox_max)
