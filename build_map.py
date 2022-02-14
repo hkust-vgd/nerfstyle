@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from config import DatasetConfig, NetworkConfig, OccupancyGridConfig
-from networks.nerf import Nerf
+from networks.nerf import create_single_nerf
 from utils import load_matrix, batch, create_logger
 from nerf_lib import NerfLib
 
@@ -57,25 +57,18 @@ def main():
         logger.error(
             'Checkpoint file \"{}\" not found'.format(args.weights_path))
 
-    x_channels, d_channels = 3, 3
-    x_enc_channels = 2 * x_channels * net_cfg.x_enc_count + x_channels
-    d_enc_channels = 2 * d_channels * net_cfg.d_enc_count + d_channels
-    model = Nerf(x_enc_channels, d_enc_channels,
-                 8, 256, [256, 128], [5]).to(device)
+    model = create_single_nerf(net_cfg).to(device)
     model.load_state_dict(ckpt)
     model.eval()
     logger.info('Loaded model from "{}"'.format(args.weights_path))
 
     # Compute occupancy grid
-    dummy_dirs = torch.zeros((grid_cfg.voxel_bsize * points_per_voxel,
-                              d_enc_channels), dtype=torch.float32).to(device)
-
     vals = []
     logger.info('Computing occupancy grid...')
     for voxels_batch in batch(all_samples, bsize=grid_cfg.voxel_bsize,
                               progress=True):
         voxels_embedded = lib.embed_x(voxels_batch.reshape(-1, 3))
-        _, out = model(voxels_embedded, dummy_dirs[:len(voxels_embedded)])
+        out = model(voxels_embedded)
         out = out.reshape(grid_cfg.voxel_bsize, points_per_voxel)
         vals.append(torch.any(out > grid_cfg.threshold, dim=1))
 

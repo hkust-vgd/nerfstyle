@@ -1,4 +1,6 @@
 x_enc_count: 10
 d_enc_count: 4
+activation: relu
+network_seed: 80000
 num_samples_per_ray: 384
 pts_bsize: 393216

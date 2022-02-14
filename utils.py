@@ -56,3 +56,29 @@ class ExitHandler(logging.StreamHandler):
         super(ExitHandler, self).emit(record)
         if record.levelno >= logging.ERROR:
             sys.exit(1)
+
+
+class RNGContextManager:
+    """Reusable context manager that switches to a separately managed
+    PyTorch RNG during the block it is wrapped with.
+    """
+    def __init__(self, seed: int) -> None:
+        """ Initializes the RNG with seed.
+
+        Args:
+            seed (Optional[int]): Initializing seed.
+        """
+        self.seed = seed
+        self.rng_state = None
+        self.cached_state = None
+
+    def __enter__(self) -> None:
+        self.cached_state = torch.random.get_rng_state()
+        if self.rng_state is not None:
+            torch.random.set_rng_state(self.rng_state)
+        else:
+            torch.random.manual_seed(self.seed)
+
+    def __exit__(self, *_) -> None:
+        self.rng_state = torch.random.get_rng_state()
+        torch.random.set_rng_state(self.cached_state)

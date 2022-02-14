@@ -97,6 +97,12 @@ class NetworkConfig(Config):
     """No. of frequencies (pairs of sines / cosines) to encode the
         view direction."""
 
+    activation: str
+    """Activation function after each linear layer."""
+
+    network_seed: Optional[int]
+    """Separate RNG seed for initializing networks."""
+
     num_samples_per_ray: int
     """No. of samples per ray."""
 
