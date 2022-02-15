@@ -141,6 +141,7 @@ class TrainConfig(Config):
         print: int
         log: int
         ckpt: int
+        test: int
 
     intervals: TrainIntervalConfig
     """Intervals to be used during training."""

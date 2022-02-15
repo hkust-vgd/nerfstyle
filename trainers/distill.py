@@ -1,6 +1,8 @@
 from collections import deque
+from functools import partial
 import itertools
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
+from cv2 import reduce
 
 import einops
 import numpy as np
@@ -70,6 +72,9 @@ class DistillDataset(Dataset):
         }
         return item_dict
 
+    def get_gt(self):
+        return self._colors, self._alphas
+
     def __len__(self) -> int:
         return self._size
 
@@ -79,6 +84,13 @@ class DistillDataset(Dataset):
 
 
 class DistillTrainer(Trainer):
+    losses = {
+        'mse': partial(F.mse_loss, reduction='none'),
+        'mae': partial(F.l1_loss, reduction='none'),
+        'mape': lambda out, tar: F.l1_loss(
+            out, tar, reduction='none') / (torch.abs(tar) + 0.1)
+    }
+
     def __init__(self, args, nargs):
         super().__init__(__name__, args, nargs)
 
@@ -95,7 +107,7 @@ class DistillTrainer(Trainer):
         self.teacher.eval()
         self.logger.info('Loaded teacher model ' + str(self.teacher))
 
-        # Entities reset in each search step
+        # Entities initialized when training new batch of nodes
         self.num_nets = 0
         self.model, self.optim = None, None
         self.train_set, self.test_set = None, None
@@ -121,7 +133,7 @@ class DistillTrainer(Trainer):
         self,
         node_batch: List[Node],
         samples_per_net: int
-    ) -> Dataset:
+    ) -> DistillDataset:
         build_data_bsize = 160000
         alpha_dist = 0.0211
 
@@ -172,6 +184,7 @@ class DistillTrainer(Trainer):
         train_samples_per_net = 100000
         test_samples_per_net = 20000
         train_bsize = 512
+        test_bsize = 512
 
         node_batch = self.nodes_queue.batch_popleft(max_num_networks)
         self.num_nets = len(node_batch)
@@ -201,12 +214,61 @@ class DistillTrainer(Trainer):
         self.train_loader = utils.cycle(DataLoader(
             self.train_set, batch_size=train_bsize,
             shuffle=True, drop_last=True, collate_fn=collate_fn))
+        self.test_loader = DataLoader(
+            self.test_set, batch_size=test_bsize,
+            shuffle=False, drop_last=False, collate_fn=collate_fn)
 
     @staticmethod
-    def calc_loss(rendered, target):
-        mse_loss = F.mse_loss(rendered, target, reduction='none')
-        mse_loss = einops.reduce(mse_loss, 'n b c -> n', 'mean')
-        return mse_loss.sum()
+    @typechecked
+    def calc_loss(
+        colors: TensorType['num_nets', 'bsize', 3],
+        alphas: TensorType['num_nets', 'bsize', 1],
+        colors_gt: TensorType['num_nets', 'bsize', 3],
+        alphas_gt: TensorType['num_nets', 'bsize', 1],
+        loss_type: str,
+        compute_quantile: bool = False
+    ) -> Dict[str, TensorType]:
+        quantile_se = 0.99
+        bsize = colors.shape[1]
+        loss_fn = DistillTrainer.losses[loss_type]
+
+        color_loss = loss_fn(colors, colors_gt)  # (N,B,3)
+        alpha_loss = loss_fn(alphas, alphas_gt)  # (N,B,1)
+        all_loss = torch.cat((color_loss, alpha_loss), dim=-1)  # (N,B,4)
+
+        # reducers
+        mean_per_pt = partial(
+            einops.reduce, pattern='n b c -> n b', reduction='mean')
+        mean_per_net = partial(
+            einops.reduce, pattern='n b c -> n', reduction='mean')
+
+        losses = {
+            'all': all_loss,
+            'per_pt': mean_per_pt(all_loss),
+            'per_net': mean_per_net(all_loss),
+            'color_per_net': mean_per_net(color_loss),
+            'alpha_per_net': mean_per_net(alpha_loss)
+        }
+
+        if not compute_quantile:
+            losses = {k: v.cpu() for k, v in losses.items()}
+            return losses
+
+        def quantile(error_mtx):
+            """
+            Given (N,B) error matrix, get the K-th quantile point error for
+            each network, where K is predefined in config file.
+            """
+            quantile_idx = int(bsize * quantile_se)
+            sorted_error_mtx, _ = torch.sort(error_mtx, dim=1)
+            return sorted_error_mtx[:, quantile_idx]
+
+        losses['all_quantile'] = quantile(losses['per_pt'])
+        losses['color_quantile'] = quantile(mean_per_pt(color_loss))
+        losses['alpha_quantile'] = quantile(mean_per_pt(alpha_loss))
+
+        losses = {k: v.cpu() for k, v in losses.items()}
+        return losses
 
     def print_status(self, loss):
         status_dict = {
@@ -215,28 +277,49 @@ class DistillTrainer(Trainer):
         }
         super().print_status(status_dict)
 
+    @torch.no_grad()
+    def test_networks(self):
+        alpha_dist = 0.0211
+        self.logger.info('Running evaluation...')
+        colors, alphas = [], []
+        for batch in tqdm(self.test_loader):
+            color, density = self.model(
+                batch['x_codes'], batch['d_codes'])
+            colors.append(color)
+            alphas.append(utils.density2alpha(density, alpha_dist))
+        colors, alphas = utils.batch_cat(colors, alphas, dim=1)
+        targets = [t.to(self.device) for t in self.test_set.get_gt()]
+
+        mse_loss = self.calc_loss(colors, alphas, *targets, 'mse',
+                                  compute_quantile=True)
+        mae_loss = self.calc_loss(colors, alphas, *targets, 'mae')
+        mape_loss = self.calc_loss(colors, alphas, *targets, 'mape')
+
     def run_iter(self):
         alpha_dist = 0.0211
 
         if self.iter_ctr == 0:
             self._reset_trainer()
 
+        # Optimize
         self.optim.zero_grad()
         batch = next(self.train_loader)
         colors, densities = self.model(batch['x_codes'], batch['d_codes'])
         alphas = utils.density2alpha(densities, alpha_dist)
 
-        # Concat (N,B,3) + (N,B,1) -> (N,B,4) for loss computation
-        loss = self.calc_loss(
-            torch.cat((colors, alphas), dim=-1),
-            torch.cat((batch['colors_gt'], batch['alphas_gt']), dim=-1)
-        )
-        loss.backward()
+        mse_losses = self.calc_loss(
+            colors, alphas, batch['colors_gt'], batch['alphas_gt'], 'mse')
+        mse_loss = mse_losses['per_net'].sum()
+        mse_loss.backward()
         self.optim.step()
 
         # Update counter after backprop
-        self.iter_ctr += 1
+        # self.iter_ctr += 1
 
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
-            self.print_status(loss)
+            self.print_status(mse_loss)
+        if self.check_interval(self.train_cfg.intervals.test, after=-1):
+            self.test_networks()
+
+        raise NotImplementedError

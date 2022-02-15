@@ -8,4 +8,5 @@ intervals:
   print: 100
   log: 100
   ckpt: 10000
+  test: 0
 rng_seed: 69420
