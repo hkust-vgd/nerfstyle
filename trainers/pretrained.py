@@ -1,9 +1,11 @@
 import time
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 
+from data.nsvf_dataset import NSVFDataset
 from networks.nerf import create_single_nerf
-from utils import batch, compute_psnr
+from utils import batch, compute_psnr, cycle
 from .base import Trainer
 
 
@@ -26,18 +28,23 @@ class PretrainTrainer(Trainer):
         else:
             self.load_ckpt(args.ckpt_path)
 
+        # Initialize dataset
+        self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
+        self.train_loader = cycle(DataLoader(self.train_set, batch_size=None,
+                                             shuffle=True))
+        self.logger.info('Loaded ' + str(self.train_set))
+
     @staticmethod
     def calc_loss(rendered, target):
         mse_loss = torch.mean((rendered - target) ** 2)
         return mse_loss
 
-    def check_interval(self, interval, after=0):
-        return (self.iter_ctr % interval == 0) and (self.iter_ctr > after)
-
     def print_status(self, loss, psnr):
-        log_str = '[TRAIN] Iter: {:d}, Loss: {:.5f}, PSNR: {:.5f}'
-        self.logger.info(log_str.format(
-            self.iter_ctr, loss.item(), psnr.item()))
+        status_dict = {
+            'Loss': '{:.5f}'.format(loss.item()),
+            'PSNR': '{:.5f}'.format(psnr.item())
+        }
+        super().print_status(status_dict)
 
     def log_status(self, loss, psnr, cur_lr):
         self.writer.add_scalar('train/loss', loss.item(), self.iter_ctr)

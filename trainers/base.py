@@ -1,13 +1,11 @@
 from pathlib import Path
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 import config
-from data.nsvf_dataset import NSVFDataset
 from nerf_lib import NerfLib
-from utils import create_logger, cycle
+from utils import create_logger
 
 
 class Trainer:
@@ -37,11 +35,14 @@ class Trainer:
         torch.manual_seed(self.train_cfg.rng_seed)
         torch.cuda.manual_seed(self.train_cfg.rng_seed)
 
-        # Initialize dataset
-        self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
-        self.train_loader = cycle(DataLoader(self.train_set, batch_size=None,
-                                             shuffle=True))
-        self.logger.info('Loaded ' + str(self.train_set))
+    def check_interval(self, interval, after=0):
+        return (self.iter_ctr % interval == 0) and (self.iter_ctr > after)
+
+    def print_status(self, status_dict):
+        log_items = [k + ': ' + str(v) for k, v in status_dict.items()]
+        log_str = '[TRAIN] Iter: {:d}, '.format(self.iter_ctr) + \
+            ', '.join(log_items)
+        self.logger.info(log_str)
 
     def run_iter(self):
         pass

@@ -59,7 +59,8 @@ def get_random_pts(n, min_pt, max_pt):
     pts = np.stack([
         np.random.uniform(min_pt[i], max_pt[i], size=(n,)) for i in range(3)
     ], axis=1)
-    return pts
+    pts_norm = 2 * (pts - min_pt) / (max_pt - min_pt) - 1
+    return pts, pts_norm
 
 
 def get_random_dirs(n):
