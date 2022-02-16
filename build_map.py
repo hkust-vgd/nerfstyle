@@ -5,8 +5,8 @@ import torch
 
 from config import DatasetConfig, NetworkConfig, OccupancyGridConfig
 from networks.nerf import create_single_nerf
-from utils import load_ckpt_path, load_matrix, batch, create_logger
-from nerf_lib import NerfLib
+# from utils import load_ckpt_path, load_matrix, batch, create_logger
+import utils
 
 
 def main():
@@ -16,14 +16,14 @@ def main():
     parser.add_argument('--save_name', default='occupancy_grid.npz')
     args = parser.parse_args()
     device = torch.device('cuda:0')
-    logger = create_logger(__name__)
+    logger = utils.create_logger(__name__)
 
     net_cfg = NetworkConfig.load()
     dataset_cfg = DatasetConfig.load(args.dataset_cfg)
     grid_cfg = OccupancyGridConfig.load()
 
     bbox_path = dataset_cfg.root_path / 'bbox.txt'
-    bbox_min, bbox_max = load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+    bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
     save_path = Path(args.weights_path).parent / args.save_name
 
     # Compute top left sample coords (H*W*D, 1, 3)
@@ -49,25 +49,24 @@ def main():
     all_samples = all_samples.to(device)
 
     # Load embedders and model
-    lib = NerfLib(net_cfg, None, device)
-
-    ckpt = load_ckpt_path(args.weights_path, logger)
+    ckpt = utils.load_ckpt_path(args.weights_path, logger)
     model = create_single_nerf(net_cfg).to(device)
-    model.load_state_dict(ckpt)
+    model.load_state_dict(ckpt, strict=False)
     model.eval()
     logger.info('Loaded model from "{}"'.format(args.weights_path))
 
     # Compute occupancy grid
-    vals = []
     logger.info('Computing occupancy grid...')
-    for voxels_batch in batch(all_samples, bsize=grid_cfg.voxel_bsize,
-                              progress=True):
-        voxels_embedded = lib.embed_x(voxels_batch.reshape(-1, 3))
-        out = model(voxels_embedded)
-        out = out.reshape(grid_cfg.voxel_bsize, points_per_voxel)
-        vals.append(torch.any(out > grid_cfg.threshold, dim=1))
+    vals = torch.empty(np.prod(dataset_cfg.grid_res))
 
-    occ_map = torch.concat(vals).reshape(dataset_cfg.grid_res).cpu()
+    def compute_occupancy_batch(voxels_batch):
+        out = model(voxels_batch.reshape(-1, 3))
+        out = out.reshape(grid_cfg.voxel_bsize, points_per_voxel)
+        return torch.any(out > grid_cfg.threshold, dim=1)
+    utils.batch_exec(compute_occupancy_batch, vals,
+                     bsize=grid_cfg.voxel_bsize, progress=True)(all_samples)
+
+    occ_map = vals.reshape(dataset_cfg.grid_res).cpu()
     count = torch.sum(occ_map).item()
     logger.info('{} out of {} voxels ({:.2f}%) are occupied'.format(
         count, len(all_samples), count * 100 / len(all_samples)))

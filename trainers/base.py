@@ -15,8 +15,8 @@ class Trainer:
         self.time0 = 0
 
         self.name = args.name
-        self.log_path: Path = Path('./runs') / self.name
-        self.log_path.mkdir(parents=True, exist_ok=True)
+        self.log_dir: Path = Path('./runs') / self.name
+        self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # Parse args
         self.dataset_cfg, nargs = config.DatasetConfig.load(
@@ -29,7 +29,9 @@ class Trainer:
 
         self.device = torch.device('cuda:0')
         self.lib = NerfLib(self.net_cfg, self.train_cfg, self.device)
-        self.writer = SummaryWriter(log_dir=self.log_path)
+        self.writer = None
+        if self.train_cfg.intervals.log > 0:
+            self.writer = SummaryWriter(log_dir=self.log_dir)
 
         np.random.seed(self.train_cfg.rng_seed)
         torch.manual_seed(self.train_cfg.rng_seed)
@@ -38,11 +40,13 @@ class Trainer:
     def check_interval(self, interval, after=0):
         return (self.iter_ctr % interval == 0) and (self.iter_ctr > after)
 
-    def print_status(self, status_dict):
+    def print_status(self, status_dict, phase='TRAIN', out_fn=None):
+        if out_fn is None:
+            out_fn = self.logger.info
         log_items = [k + ': ' + str(v) for k, v in status_dict.items()]
-        log_str = '[TRAIN] Iter: {:d}, '.format(self.iter_ctr) + \
-            ', '.join(log_items)
-        self.logger.info(log_str)
+        log_str = '[{}] Iter: {:d}, {}'.format(
+            phase, self.iter_ctr, ', '.join(log_items))
+        out_fn(log_str)
 
     def run_iter(self):
         pass

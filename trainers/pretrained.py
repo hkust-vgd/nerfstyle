@@ -89,7 +89,7 @@ class PretrainTrainer(Trainer):
 
         ckpt_fn = 'iter_{:0{width}d}.pth'.format(
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
-        ckpt_path = self.log_path / ckpt_fn
+        ckpt_path = self.log_dir / ckpt_fn
 
         torch.save(ckpt_dict, ckpt_path)
         self.logger.info('Saved checkpoint at {}'.format(ckpt_path))
@@ -111,13 +111,11 @@ class PretrainTrainer(Trainer):
         dirs = rays.viewdirs()
 
         pts_flat = pts.reshape(-1, 3)
-        pts_embedded = self.lib.embed_x(pts_flat)
-        dirs_embedded = self.lib.embed_d(dirs)
-        dirs_embedded = torch.repeat_interleave(
-            dirs_embedded, repeats=self.net_cfg.num_samples_per_ray, dim=0)
+        dirs_flat = torch.repeat_interleave(
+            dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
 
         rgbs, densities = [], []
-        for pts_batch, dirs_batch in batch(pts_embedded, dirs_embedded,
+        for pts_batch, dirs_batch in batch(pts_flat, dirs_flat,
                                            bsize=self.net_cfg.pts_bsize):
             out_c, out_a = self.model(pts_batch, dirs_batch)
             rgbs.append(out_c)

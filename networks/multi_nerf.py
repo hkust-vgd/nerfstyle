@@ -6,6 +6,7 @@ from torch import nn
 from torchtyping import TensorType
 
 from config import NetworkConfig
+from networks.embedder import MultiEmbedder
 from utils import RNGContextManager
 from .nerf import Nerf
 
@@ -76,6 +77,10 @@ class MultiNerf(Nerf):
 
         super().__init__(**nerf_params)
 
+    def _create_embedders(self, x_enc_counts, d_enc_counts):
+        self.x_embedder = MultiEmbedder(x_enc_counts)
+        self.d_embedder = MultiEmbedder(d_enc_counts)
+
     def get_linear(self, in_channels, out_channels):
         return MultiLinear(
             self.num_networks, in_channels, out_channels, self.activation)
@@ -85,12 +90,13 @@ def create_multi_nerf(
     num_networks: int,
     net_cfg: NetworkConfig
 ) -> MultiNerf:
-    x_channels, d_channels = 3, 3
-    x_enc_channels = 2 * x_channels * net_cfg.x_enc_count + x_channels
-    d_enc_channels = 2 * d_channels * net_cfg.d_enc_count + d_channels
-    model = MultiNerf(
-        num_networks, net_cfg.network_seed,
-        x_channels=x_enc_channels, d_channels=d_enc_channels,
-        x_layers=2, x_width=32, d_widths=[32, 32],
-        activation=net_cfg.activation)
+    nerf_config = {
+        'x_enc_counts': net_cfg.x_enc_count,
+        'd_enc_counts': net_cfg.d_enc_count,
+        'x_layers': 2,
+        'x_width': 32,
+        'd_widths': [32, 32],
+        'activation': net_cfg.activation
+    }
+    model = MultiNerf(num_networks, net_cfg.network_seed, **nerf_config)
     return model

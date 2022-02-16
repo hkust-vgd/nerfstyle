@@ -1,7 +1,7 @@
 from collections import namedtuple
 import logging
 import sys
-from typing import List
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -28,10 +28,91 @@ def batch_cat(*tensor_lists, dim=0, reshape=None) -> List[torch.Tensor]:
     return [torch.cat(tl, dim=dim).reshape(reshape) for tl in tensor_lists]
 
 
+def batch_exec(
+    func: Callable,
+    *dest: Iterable[Any],
+    bsize: int = 1,
+    in_dim: int = 0,
+    out_dim: Optional[int] = None,
+    progress: bool = False
+) -> Callable:
+    """ Batch execution of function.
+
+    Args:
+        func (Callable): Function to be executed.
+        *dest (Iterable[Any]): Objects to store execution result.
+        bsize (int, optional): Batch size. Defaults to 1.
+        in_dim (int, optional): Generate batches of all arguments by iterating
+            over this dimension. Defaults to 0.
+        out_dim (Optional[int], optional): Accumulates results over this
+            dimension. Defaults to None (i.e. same as in_dim).
+        progress (bool, optional): Displays progress meter. Defaults to False.
+
+    Returns:
+        Callable: Batched function.
+    """
+    if out_dim is None:
+        out_dim = in_dim
+
+    def create_slice(dim, s, e):
+        if dim == 0:
+            return slice(s, e)
+        return tuple([slice(None) for _ in range(dim)] + slice(s, e))
+
+    def get_size(obj, dim):
+        if hasattr(obj, 'shape'):
+            return obj.shape[dim]
+        assert dim == 0
+        return len(obj)
+
+    def batch_func(*args):
+        size = get_size(args[0], in_dim)
+        main_loop = range(0, size, bsize)
+        test = tqdm(main_loop, total=size, disable=(not progress))
+        out_s = 0
+        for in_s in main_loop:
+            in_e = min(size, in_s + bsize)
+            in_slice = create_slice(in_dim, in_s, in_e)
+            bargs = [a[in_slice] for a in args]
+
+            bout = func(*bargs)
+            if not isinstance(bout, tuple):
+                bout = (bout, )
+
+            out_bsize = get_size(bout[0], out_dim)
+            out_slice = create_slice(out_dim, out_s, out_s + out_bsize)
+            for d, bo in zip(dest, bout):
+                d[out_slice] = bo
+            out_s += out_bsize
+            test.update(in_e - in_s)
+        test.close()
+
+    return batch_func
+
+
 def compute_psnr(loss):
     psnr = -10. * torch.log(loss) / torch.log(
         torch.FloatTensor([10.]).to(loss.device))
     return psnr
+
+
+def compute_tensor_size(
+    *tensors: torch.Tensor,
+    unit: str = 'B',
+    prec: int = 3
+) -> str:
+    bytes_count = sum([t.nelement() * t.element_size() for t in tensors])
+    unit = unit.upper()
+    if unit == 'B':
+        return '{:d} B'.format(bytes_count)
+    elif unit == 'KB':
+        return '{:.{prec}f} KB'.format(bytes_count / (2 ** 10), prec=prec)
+    elif unit == 'MB':
+        return '{:.{prec}f} MB'.format(bytes_count / (2 ** 20), prec=prec)
+    elif unit == 'GB':
+        return '{:.{prec}f} GB'.format(bytes_count / (2 ** 30), prec=prec)
+    else:
+        raise ValueError('Unrecognized unit ' + unit)
 
 
 def create_logger(name, level='info'):
@@ -60,13 +141,13 @@ def get_random_pts(n, min_pt, max_pt):
         np.random.uniform(min_pt[i], max_pt[i], size=(n,)) for i in range(3)
     ], axis=1)
     pts_norm = 2 * (pts - min_pt) / (max_pt - min_pt) - 1
-    return pts, pts_norm
+    return torch.FloatTensor(pts), torch.FloatTensor(pts_norm)
 
 
 def get_random_dirs(n):
     random_dirs = np.random.randn(n, 3)
     random_dirs /= np.linalg.norm(random_dirs, axis=1).reshape(-1, 1)
-    return random_dirs
+    return torch.FloatTensor(random_dirs)
 
 
 def load_matrix(path):
@@ -81,6 +162,15 @@ def load_ckpt_path(path, logger):
         logger.error(
             'Checkpoint file \"{}\" not found'.format(path))
     return ckpt
+
+
+def reshape(*tensors: torch.Tensor, shape: Tuple[int]) -> Tuple[torch.Tensor]:
+    return tuple([t.reshape(shape) for t in tensors])
+
+
+def to_device(old_dict: Dict[str, torch.Tensor], device: str):
+    new_dict = {k: v.to(device) for k, v in old_dict.items()}
+    return new_dict
 
 
 class ExitHandler(logging.StreamHandler):

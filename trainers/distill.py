@@ -1,6 +1,8 @@
 from collections import deque
 from functools import partial
 import itertools
+from pathlib import Path
+from sys import getsizeof
 from typing import Dict, Iterable, List, Optional
 from cv2 import reduce
 
@@ -25,13 +27,27 @@ patch_typeguard()
 class Node:
     def __init__(
         self,
+        idx: str,
         min_pt: List[float],
-        max_pt: List[float]
+        max_pt: List[float],
+        log_dir: Path
     ) -> None:
+        self.idx = idx
         self.min_pt, self.max_pt = np.array(min_pt), np.array(max_pt)
         self.net: Optional[Nerf] = None
         self.leq_child: Optional[Node] = None
         self.gt_child: Optional[Node] = None
+        self.log_path = log_dir / 'node_{}.log'.format(idx)
+
+    def log_init(self):
+        with open(self.log_path, 'w') as f:
+            f.write('Node "{}"\n'.format(self.idx))
+            f.write('Min coords: ' + str(self.min_pt) + '\n')
+            f.write('Max coords: ' + str(self.max_pt) + '\n')
+
+    def log_append(self, msg: str):
+        with open(self.log_path, 'a') as f:
+            f.write(msg + '\n')
 
 
 class NodeQueue(deque):
@@ -51,22 +67,22 @@ class DistillDataset(Dataset):
     @typechecked
     def __init__(
         self,
-        x_codes: TensorType['num_nets', 'dataset_size', -1],
-        d_codes: TensorType['num_nets', 'dataset_size', -1],
+        pts: TensorType['num_nets', 'dataset_size', 3],
+        dirs: TensorType['num_nets', 'dataset_size', 3],
         colors: TensorType['num_nets', 'dataset_size', 3],
         alphas: TensorType['num_nets', 'dataset_size', 1]
     ) -> None:
-        self._x_codes = x_codes
-        self._d_codes = d_codes
+        self._pts = pts
+        self._dirs = dirs
         self._colors = colors
         self._alphas = alphas
 
-        self._num_nets, self._size = x_codes.shape[:2]
+        self._num_nets, self._size = pts.shape[:2]
 
     def __getitem__(self, index):
         item_dict = {
-            'x_codes': self._x_codes[:, index],
-            'd_codes': self._d_codes[:, index],
+            'pts': self._pts[:, index],
+            'dirs': self._dirs[:, index],
             'colors_gt': self._colors[:, index],
             'alphas_gt': self._alphas[:, index]
         }
@@ -94,6 +110,8 @@ class DistillTrainer(Trainer):
     def __init__(self, args, nargs):
         super().__init__(__name__, args, nargs)
 
+        self.test_log_dir = self.log_dir / 'logs'
+        self.test_log_dir.mkdir(parents=True, exist_ok=True)
         self.root_nodes = self._generate_nodes()
         self.nodes_queue = NodeQueue(self.root_nodes)
 
@@ -103,29 +121,41 @@ class DistillTrainer(Trainer):
 
         ckpt = utils.load_ckpt_path(args.teacher_ckpt_path, self.logger)
         self.teacher = create_single_nerf(self.net_cfg).to(self.device)
-        self.teacher.load_state_dict(ckpt)
+        self.teacher.load_state_dict(ckpt, strict=False)
         self.teacher.eval()
         self.logger.info('Loaded teacher model ' + str(self.teacher))
 
+        self.losses = ['mse', 'mae', 'mape']
+        self.metrics = self.losses + ['se_q99']
+        self.metric_items = ['all', 'color', 'alpha']
+
         # Entities initialized when training new batch of nodes
         self.num_nets = 0
+        self.cur_nodes = []
         self.model, self.optim = None, None
         self.train_set, self.test_set = None, None
         self.train_loader = None
+        self.best_losses = {}
 
     def _generate_nodes(self) -> List[Node]:
         bbox_path = self.dataset_cfg.root_path / 'bbox.txt'
         min_pt, max_pt = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
 
         network_res = self.dataset_cfg.network_res
+        log_dir = self.test_log_dir
+
         intervals = [np.linspace(start, end, num+1) for start, end, num in
                      zip(min_pt, max_pt, network_res)]
 
+        node_idx_fmt = '{{:0{}d}}_{{:0{}d}}_{{:0{}d}}'.format(
+            *[len(str(dim)) for dim in network_res])
+
         nodes = []
         for pt in itertools.product(*[range(ax) for ax in network_res]):
+            node_id = node_idx_fmt.format(*pt)
             node_min_pt = [intervals[i][x] for i, x in enumerate(pt)]
             node_max_pt = [intervals[i][x+1] for i, x in enumerate(pt)]
-            nodes.append(Node(node_min_pt, node_max_pt))
+            nodes.append(Node(node_id, node_min_pt, node_max_pt, log_dir))
 
         return nodes
 
@@ -138,41 +168,47 @@ class DistillTrainer(Trainer):
         alpha_dist = 0.0211
 
         # Randomly collect points and directions
-        pts, pts_norm, dirs = [], [], []
-        self.logger.info('Creating {:d} input samples...'.format(
-            samples_per_net))
-        for node in tqdm(node_batch):
+        pts = torch.empty((self.num_nets * samples_per_net, 3))
+        pts_norm = torch.empty((self.num_nets * samples_per_net, 3))
+        dirs = torch.empty((self.num_nets * samples_per_net, 3))
+
+        tsize = utils.compute_tensor_size(pts, pts_norm, dirs, unit='GB')
+        self.logger.info('Creating {:d} input samples ({})...'.format(
+            samples_per_net, tsize))
+
+        def gen_one_node(node):
+            node = node[0]
             node_pts, node_pts_norm = utils.get_random_pts(
                 samples_per_net, node.min_pt, node.max_pt)
             node_dirs = utils.get_random_dirs(samples_per_net)
-            pts.append(torch.FloatTensor(node_pts))
-            pts_norm.append(torch.FloatTensor(node_pts_norm))
-            dirs.append(torch.FloatTensor(node_dirs))
-        pts, pts_norm, dirs = utils.batch_cat(pts, pts_norm, dirs)
+            return node_pts, node_pts_norm, node_dirs
+
+        utils.batch_exec(gen_one_node, pts, pts_norm, dirs,
+                         bsize=1, progress=True)(node_batch)
 
         # Compute embedded points / dirs
         # Evaluate ground truth from teacher model
-        x_codes, d_codes, colors, alphas = [], [], [], []
-        self.logger.info('Computing input and target data...')
+        colors = torch.empty((self.num_nets * samples_per_net, 3))
+        alphas = torch.empty((self.num_nets * samples_per_net, 1))
+
+        tsize = utils.compute_tensor_size(colors, alphas, unit='GB')
+        self.logger.info('Computing inputs and targets ({})...'.format(tsize))
+
+        def gen_data_batch(pts_batch, dirs_batch):
+            pts_batch = pts_batch.to(self.device)
+            dirs_batch = dirs_batch.to(self.device)
+            color, density = self.teacher(pts_batch, dirs_batch)
+            alpha = utils.density2alpha(density, alpha_dist)
+            return color.cpu(), alpha.cpu()
+
         with torch.no_grad():
-            for batch in utils.batch(pts, pts_norm, dirs,
-                                     bsize=build_data_bsize, progress=True):
-                pts_batch, pts_norm_batch, dirs_batch = batch
-                x_code = self.lib.embed_x(pts_batch.to(self.device))
-                x_norm_code = self.lib.embed_x(pts_norm_batch.to(self.device))
-                d_code = self.lib.embed_d(dirs_batch.to(self.device))
-                color, density = self.teacher(x_code, d_code)
+            utils.batch_exec(gen_data_batch, colors, alphas,
+                             bsize=build_data_bsize, progress=True)(pts, dirs)
+        pts_norm, dirs, colors, alphas = utils.reshape(
+            pts_norm, dirs, colors, alphas,
+            shape=(len(node_batch), samples_per_net, -1))
 
-                x_codes.append(x_norm_code.cpu())
-                d_codes.append(d_code.cpu())
-                colors.append(color.cpu())
-                alphas.append(utils.density2alpha(density, alpha_dist).cpu())
-
-        x_codes, d_codes, colors, alphas = utils.batch_cat(
-            x_codes, d_codes, colors, alphas,
-            reshape=(len(node_batch), samples_per_net, -1))
-
-        dataset = DistillDataset(x_codes, d_codes, colors, alphas)
+        dataset = DistillDataset(pts_norm, dirs, colors, alphas)
         return dataset
 
     def _reset_trainer(self) -> None:
@@ -186,8 +222,11 @@ class DistillTrainer(Trainer):
         train_bsize = 512
         test_bsize = 512
 
-        node_batch = self.nodes_queue.batch_popleft(max_num_networks)
-        self.num_nets = len(node_batch)
+        self.cur_nodes = self.nodes_queue.batch_popleft(max_num_networks)
+        for node in self.cur_nodes:
+            node.log_init()
+        self.num_nets = len(self.cur_nodes)
+
         self.model = create_multi_nerf(self.num_nets, self.net_cfg).to(
             self.device)
         # self.logger.info('Created model ' + str(self.model))
@@ -196,10 +235,10 @@ class DistillTrainer(Trainer):
             lr=self.train_cfg.initial_learning_rate)
 
         self.train_set = self._build_dataset(
-            node_batch, train_samples_per_net)
+            self.cur_nodes, train_samples_per_net)
         self.logger.info('Loaded ' + str(self.train_set))
         self.test_set = self._build_dataset(
-            node_batch, test_samples_per_net)
+            self.cur_nodes, test_samples_per_net)
         self.logger.info('Loaded ' + str(self.test_set))
 
         # Collate dataset items by 2nd (batch) dimension
@@ -218,6 +257,14 @@ class DistillTrainer(Trainer):
             self.test_set, batch_size=test_bsize,
             shuffle=False, drop_last=False, collate_fn=collate_fn)
 
+        # Containers for best losses per network
+        self.best_losses = {
+            mk: {
+                k: float('inf') * torch.ones(self.num_nets)
+                for k in self.metric_items
+            } for mk in self.metrics
+        }
+
     @staticmethod
     @typechecked
     def calc_loss(
@@ -225,34 +272,42 @@ class DistillTrainer(Trainer):
         alphas: TensorType['num_nets', 'bsize', 1],
         colors_gt: TensorType['num_nets', 'bsize', 3],
         alphas_gt: TensorType['num_nets', 'bsize', 1],
-        loss_type: str,
-        compute_quantile: bool = False
+        loss_type: str
     ) -> Dict[str, TensorType]:
-        quantile_se = 0.99
-        bsize = colors.shape[1]
         loss_fn = DistillTrainer.losses[loss_type]
 
         color_loss = loss_fn(colors, colors_gt)  # (N,B,3)
         alpha_loss = loss_fn(alphas, alphas_gt)  # (N,B,1)
         all_loss = torch.cat((color_loss, alpha_loss), dim=-1)  # (N,B,4)
 
-        # reducers
-        mean_per_pt = partial(
-            einops.reduce, pattern='n b c -> n b', reduction='mean')
         mean_per_net = partial(
             einops.reduce, pattern='n b c -> n', reduction='mean')
 
-        losses = {
-            'all': all_loss,
-            'per_pt': mean_per_pt(all_loss),
-            'per_net': mean_per_net(all_loss),
-            'color_per_net': mean_per_net(color_loss),
-            'alpha_per_net': mean_per_net(alpha_loss)
-        }
+        losses = utils.to_device({
+            'all': mean_per_net(all_loss),
+            'color': mean_per_net(color_loss),
+            'alpha': mean_per_net(alpha_loss)
+        }, 'cpu')
+        return losses
 
-        if not compute_quantile:
-            losses = {k: v.cpu() for k, v in losses.items()}
-            return losses
+    @staticmethod
+    @typechecked
+    def calc_quantile_loss(
+        colors: TensorType['num_nets', 'bsize', 3],
+        alphas: TensorType['num_nets', 'bsize', 1],
+        colors_gt: TensorType['num_nets', 'bsize', 3],
+        alphas_gt: TensorType['num_nets', 'bsize', 1]
+    ) -> Dict[str, TensorType]:
+        quantile_se = 0.99
+        bsize = colors.shape[1]
+
+        mse_fn = DistillTrainer.losses['mse']
+        color_loss = mse_fn(colors, colors_gt)  # (N,B,3)
+        alpha_loss = mse_fn(alphas, alphas_gt)  # (N,B,1)
+        all_loss = torch.cat((color_loss, alpha_loss), dim=-1)  # (N,B,4)
+
+        mean_per_pt = partial(
+            einops.reduce, pattern='n b c -> n b', reduction='mean')
 
         def quantile(error_mtx):
             """
@@ -263,11 +318,11 @@ class DistillTrainer(Trainer):
             sorted_error_mtx, _ = torch.sort(error_mtx, dim=1)
             return sorted_error_mtx[:, quantile_idx]
 
-        losses['all_quantile'] = quantile(losses['per_pt'])
-        losses['color_quantile'] = quantile(mean_per_pt(color_loss))
-        losses['alpha_quantile'] = quantile(mean_per_pt(alpha_loss))
-
-        losses = {k: v.cpu() for k, v in losses.items()}
+        losses = utils.to_device({
+            'all': quantile(mean_per_pt(all_loss)),
+            'color': quantile(mean_per_pt(color_loss)),
+            'alpha': quantile(mean_per_pt(alpha_loss))
+        }, 'cpu')
         return losses
 
     def print_status(self, loss):
@@ -283,17 +338,35 @@ class DistillTrainer(Trainer):
         self.logger.info('Running evaluation...')
         colors, alphas = [], []
         for batch in tqdm(self.test_loader):
-            color, density = self.model(
-                batch['x_codes'], batch['d_codes'])
+            color, density = self.model(batch['pts'], batch['dirs'])
             colors.append(color)
             alphas.append(utils.density2alpha(density, alpha_dist))
         colors, alphas = utils.batch_cat(colors, alphas, dim=1)
-        targets = [t.to(self.device) for t in self.test_set.get_gt()]
+        colors_gt, alphas_gt = \
+            [t.to(self.device) for t in self.test_set.get_gt()]
 
-        mse_loss = self.calc_loss(colors, alphas, *targets, 'mse',
-                                  compute_quantile=True)
-        mae_loss = self.calc_loss(colors, alphas, *targets, 'mae')
-        mape_loss = self.calc_loss(colors, alphas, *targets, 'mape')
+        # Calculate losses for all metrics
+        losses = {
+            loss: self.calc_loss(colors, alphas, colors_gt, alphas_gt, loss)
+            for loss in self.losses
+        }
+        losses['se_q99'] = self.calc_quantile_loss(
+            colors, alphas, colors_gt, alphas_gt)
+
+        # Update best losses for all metrics
+        for mk, k in itertools.product(self.metrics, self.metric_items):
+            self.best_losses[mk][k] = torch.minimum(
+                    self.best_losses[mk][k], losses[mk][k])
+
+        # Log metrics
+        for i in range(self.num_nets):
+            log_dict = {
+                mk.upper(): '{:.5f} (c: {:.5f}, a: {:.5f})'.format(
+                    md['all'][i], md['color'][i], md['alpha'][i])
+                for mk, md in self.best_losses.items()}
+            log_fn = self.cur_nodes[i].log_append
+            super().print_status(log_dict, phase='TEST', out_fn=log_fn)
+            break
 
     def run_iter(self):
         alpha_dist = 0.0211
@@ -304,17 +377,17 @@ class DistillTrainer(Trainer):
         # Optimize
         self.optim.zero_grad()
         batch = next(self.train_loader)
-        colors, densities = self.model(batch['x_codes'], batch['d_codes'])
+        colors, densities = self.model(batch['pts'], batch['dirs'])
         alphas = utils.density2alpha(densities, alpha_dist)
 
         mse_losses = self.calc_loss(
             colors, alphas, batch['colors_gt'], batch['alphas_gt'], 'mse')
-        mse_loss = mse_losses['per_net'].sum()
+        mse_loss = mse_losses['all'].sum()
         mse_loss.backward()
         self.optim.step()
 
         # Update counter after backprop
-        # self.iter_ctr += 1
+        self.iter_ctr += 1
 
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
@@ -322,4 +395,4 @@ class DistillTrainer(Trainer):
         if self.check_interval(self.train_cfg.intervals.test, after=-1):
             self.test_networks()
 
-        raise NotImplementedError
+        # TODO: Split nodes if necessary

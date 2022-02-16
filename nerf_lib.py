@@ -13,17 +13,9 @@ import utils
 
 class NerfLib:
     def __init__(self, net_cfg: NetworkConfig, train_cfg: TrainConfig, device):
-        self.x_embedder = Embedder(net_cfg.x_enc_count).to(device)
-        self.d_embedder = Embedder(net_cfg.d_enc_count).to(device)
         self.net_cfg = net_cfg
         self.train_cfg = train_cfg
         self.device = device
-
-    def embed_x(self, x):
-        return self.x_embedder(x)
-
-    def embed_d(self, d):
-        return self.d_embedder(d)
 
     def generate_rays(
         self,
