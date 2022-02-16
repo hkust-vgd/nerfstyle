@@ -12,7 +12,7 @@ logger = create_logger(__name__)
 T = TypeVar('T')
 
 
-def flatten(d: dict, delim: str = '.'):
+def flatten(d: dict):
     items = {}
     for k, v in d.items():
         if isinstance(v, dict):

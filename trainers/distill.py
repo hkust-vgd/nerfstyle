@@ -359,7 +359,6 @@ class DistillTrainer(Trainer):
                 for mk, md in self.best_losses.items()}
             log_fn = self.cur_nodes[i].log_append
             super().print_status(log_dict, phase='TEST', out_fn=log_fn)
-            break
 
     def run_iter(self):
         if self.iter_ctr == 0:
