@@ -1,7 +1,7 @@
 from collections import namedtuple
 import logging
 import sys
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -30,7 +30,7 @@ def batch_cat(*tensor_lists, dim=0, reshape=None) -> List[torch.Tensor]:
 
 def batch_exec(
     func: Callable,
-    *dest: Iterable[Any],
+    *dest: Any,
     bsize: int = 1,
     in_dim: int = 0,
     out_dim: Optional[int] = None,
@@ -40,7 +40,7 @@ def batch_exec(
 
     Args:
         func (Callable): Function to be executed.
-        *dest (Iterable[Any]): Objects to store execution result.
+        *dest (Any): Objects to store execution result.
         bsize (int, optional): Batch size. Defaults to 1.
         in_dim (int, optional): Generate batches of all arguments by iterating
             over this dimension. Defaults to 0.
@@ -148,6 +148,13 @@ def get_random_dirs(n):
     random_dirs = np.random.randn(n, 3)
     random_dirs /= np.linalg.norm(random_dirs, axis=1).reshape(-1, 1)
     return torch.FloatTensor(random_dirs)
+
+
+def get_repr(obj, attrs):
+    attrs_str = ', '.join(
+        ['{}={}'.format(attr, getattr(obj, attr)) for attr in attrs])
+    obj_repr = '{}({})'.format(type(obj).__name__, attrs_str)
+    return obj_repr
 
 
 def load_matrix(path):

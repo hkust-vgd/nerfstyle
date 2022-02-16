@@ -7,7 +7,7 @@ from torchtyping import TensorType
 
 from config import NetworkConfig
 from networks.embedder import MultiEmbedder
-from utils import RNGContextManager
+import utils
 from .nerf import Nerf
 
 
@@ -27,7 +27,7 @@ class MultiLinear(nn.Module):
 
     @classmethod
     def set_rng_cm(cls, seed: int):
-        cls.rng_cm = RNGContextManager(seed)
+        cls.rng_cm = utils.RNGContextManager(seed)
 
     def __init__(
         self,
@@ -37,6 +37,10 @@ class MultiLinear(nn.Module):
         activation: str,
     ) -> None:
         super().__init__()
+
+        self.num_networks = num_networks
+        self.in_features = in_features
+        self.out_features = out_features
 
         self.weight = nn.Parameter(torch.Tensor(
             num_networks, out_features, in_features))
@@ -56,6 +60,10 @@ class MultiLinear(nn.Module):
         product = torch.bmm(x, weight_transpose)
         result = product + self.bias
         return result
+
+    def __repr__(self) -> str:
+        attrs = ['num_networks', 'in_features', 'out_features']
+        return utils.get_repr(self, attrs)
 
 
 class MultiNerf(Nerf):

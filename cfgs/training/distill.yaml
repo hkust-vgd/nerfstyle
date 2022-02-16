@@ -4,3 +4,12 @@ intervals:
   log: 0
   ckpt: 10000
   test: 500
+distill:
+  alpha_dist: 0.0211
+  init_data_bsize: 160000
+  nets_bsize: 512
+  quantile: 0.99
+  test_bsize: 512
+  test_samples_pnet: 20000
+  train_bsize: 512
+  train_samples_pnet: 1000000

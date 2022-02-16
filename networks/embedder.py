@@ -1,7 +1,7 @@
-from math import pi
 import torch
 from torch import nn
 import einops
+import utils
 
 
 class Embedder(nn.Module):
@@ -33,6 +33,10 @@ class Embedder(nn.Module):
         if self.append_input:
             out = torch.cat([out, x], dim=1)
         return out
+
+    def __repr__(self) -> str:
+        attrs = ['num_freqs', 'append_input', 'out_channels']
+        return utils.get_repr(self, attrs)
 
 
 class MultiEmbedder(Embedder):

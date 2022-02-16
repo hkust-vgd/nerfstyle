@@ -19,10 +19,10 @@ class Trainer:
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # Parse args
-        self.dataset_cfg, nargs = config.DatasetConfig.load(
+        self.dataset_cfg, nargs = config.DatasetConfig.load_nargs(
             args.dataset_cfg, nargs=nargs)
-        self.net_cfg, nargs = config.NetworkConfig.load(nargs=nargs)
-        self.train_cfg, nargs = config.TrainConfig.load(
+        self.net_cfg, nargs = config.NetworkConfig.load_nargs(nargs=nargs)
+        self.train_cfg, nargs = config.TrainConfig.load_nargs(
             'cfgs/training/{}.yaml'.format(args.mode), nargs=nargs)
         if len(nargs) > 0:
             self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))

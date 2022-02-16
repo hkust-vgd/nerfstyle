@@ -4,6 +4,7 @@ precrop_iterations: 10000
 initial_learning_rate: 0.0005
 learning_rate_decay: 0
 num_iterations: 200000
+distill: null
 intervals:
   print: 100
   log: 100

@@ -164,9 +164,6 @@ class DistillTrainer(Trainer):
         node_batch: List[Node],
         samples_per_net: int
     ) -> DistillDataset:
-        build_data_bsize = 160000
-        alpha_dist = 0.0211
-
         # Randomly collect points and directions
         pts = torch.empty((self.num_nets * samples_per_net, 3))
         pts_norm = torch.empty((self.num_nets * samples_per_net, 3))
@@ -198,12 +195,14 @@ class DistillTrainer(Trainer):
             pts_batch = pts_batch.to(self.device)
             dirs_batch = dirs_batch.to(self.device)
             color, density = self.teacher(pts_batch, dirs_batch)
-            alpha = utils.density2alpha(density, alpha_dist)
+            alpha = utils.density2alpha(
+                density, self.train_cfg.distill.alpha_dist)
             return color.cpu(), alpha.cpu()
 
         with torch.no_grad():
             utils.batch_exec(gen_data_batch, colors, alphas,
-                             bsize=build_data_bsize, progress=True)(pts, dirs)
+                             bsize=self.train_cfg.distill.init_data_bsize,
+                             progress=True)(pts, dirs)
         pts_norm, dirs, colors, alphas = utils.reshape(
             pts_norm, dirs, colors, alphas,
             shape=(len(node_batch), samples_per_net, -1))
@@ -216,29 +215,24 @@ class DistillTrainer(Trainer):
         Resets model, optimizer and datasets. Performed once before training a
         new batch of nodes.
         """
-        max_num_networks = 512
-        train_samples_per_net = 100000
-        test_samples_per_net = 20000
-        train_bsize = 512
-        test_bsize = 512
-
-        self.cur_nodes = self.nodes_queue.batch_popleft(max_num_networks)
+        self.cur_nodes = self.nodes_queue.batch_popleft(
+            self.train_cfg.distill.nets_bsize)
         for node in self.cur_nodes:
             node.log_init()
         self.num_nets = len(self.cur_nodes)
 
         self.model = create_multi_nerf(self.num_nets, self.net_cfg).to(
             self.device)
-        # self.logger.info('Created model ' + str(self.model))
+        self.logger.info('Created student model ' + str(self.model))
         self.optim = torch.optim.Adam(
             self.model.parameters(),
             lr=self.train_cfg.initial_learning_rate)
 
         self.train_set = self._build_dataset(
-            self.cur_nodes, train_samples_per_net)
+            self.cur_nodes, self.train_cfg.distill.train_samples_pnet)
         self.logger.info('Loaded ' + str(self.train_set))
         self.test_set = self._build_dataset(
-            self.cur_nodes, test_samples_per_net)
+            self.cur_nodes, self.train_cfg.distill.test_samples_pnet)
         self.logger.info('Loaded ' + str(self.test_set))
 
         # Collate dataset items by 2nd (batch) dimension
@@ -251,10 +245,10 @@ class DistillTrainer(Trainer):
             return collate_dict
 
         self.train_loader = utils.cycle(DataLoader(
-            self.train_set, batch_size=train_bsize,
+            self.train_set, batch_size=self.train_cfg.distill.train_bsize,
             shuffle=True, drop_last=True, collate_fn=collate_fn))
         self.test_loader = DataLoader(
-            self.test_set, batch_size=test_bsize,
+            self.test_set, batch_size=self.train_cfg.distill.test_bsize,
             shuffle=False, drop_last=False, collate_fn=collate_fn)
 
         # Containers for best losses per network
@@ -290,15 +284,14 @@ class DistillTrainer(Trainer):
         }, 'cpu')
         return losses
 
-    @staticmethod
     @typechecked
     def calc_quantile_loss(
+        self,
         colors: TensorType['num_nets', 'bsize', 3],
         alphas: TensorType['num_nets', 'bsize', 1],
         colors_gt: TensorType['num_nets', 'bsize', 3],
         alphas_gt: TensorType['num_nets', 'bsize', 1]
     ) -> Dict[str, TensorType]:
-        quantile_se = 0.99
         bsize = colors.shape[1]
 
         mse_fn = DistillTrainer.losses['mse']
@@ -314,7 +307,7 @@ class DistillTrainer(Trainer):
             Given (N,B) error matrix, get the K-th quantile point error for
             each network, where K is predefined in config file.
             """
-            quantile_idx = int(bsize * quantile_se)
+            quantile_idx = int(bsize * self.train_cfg.distill.quantile)
             sorted_error_mtx, _ = torch.sort(error_mtx, dim=1)
             return sorted_error_mtx[:, quantile_idx]
 
@@ -334,13 +327,13 @@ class DistillTrainer(Trainer):
 
     @torch.no_grad()
     def test_networks(self):
-        alpha_dist = 0.0211
         self.logger.info('Running evaluation...')
         colors, alphas = [], []
         for batch in tqdm(self.test_loader):
             color, density = self.model(batch['pts'], batch['dirs'])
             colors.append(color)
-            alphas.append(utils.density2alpha(density, alpha_dist))
+            alphas.append(utils.density2alpha(
+                density, self.train_cfg.distill.alpha_dist))
         colors, alphas = utils.batch_cat(colors, alphas, dim=1)
         colors_gt, alphas_gt = \
             [t.to(self.device) for t in self.test_set.get_gt()]
@@ -369,8 +362,6 @@ class DistillTrainer(Trainer):
             break
 
     def run_iter(self):
-        alpha_dist = 0.0211
-
         if self.iter_ctr == 0:
             self._reset_trainer()
 
@@ -378,7 +369,8 @@ class DistillTrainer(Trainer):
         self.optim.zero_grad()
         batch = next(self.train_loader)
         colors, densities = self.model(batch['pts'], batch['dirs'])
-        alphas = utils.density2alpha(densities, alpha_dist)
+        alphas = utils.density2alpha(
+            densities, self.train_cfg.distill.alpha_dist)
 
         mse_losses = self.calc_loss(
             colors, alphas, batch['colors_gt'], batch['alphas_gt'], 'mse')

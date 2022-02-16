@@ -3,19 +3,21 @@ from argparse import ArgumentParser
 from dataclasses import dataclass, asdict
 from dacite import from_dict
 from dacite import Config as DaciteConfig
-from typing import Optional
+from typing import List, Optional, Tuple, TypeVar
 import yaml
 from utils import create_logger
 
 
 logger = create_logger(__name__)
+T = TypeVar('T')
 
 
 def flatten(d: dict, delim: str = '.'):
     items = {}
     for k, v in d.items():
         if isinstance(v, dict):
-            subitems = {k + delim + sk: sv for sk, sv in flatten(v).items()}
+            subitems = {'  ' + sk: sv for sk, sv in flatten(v).items()}
+            items[k] = ''
             items.update(subitems)
         else:
             items[k] = v
@@ -27,7 +29,12 @@ class Config:
     print_col_width: int = 30
 
     @classmethod
-    def load(cls, config_path=None, nargs=None):
+    def load_nargs(
+        cls: T,
+        config_path: Optional[Path] = None,
+        nargs: List[str] = ()
+    ) -> Tuple[T, List[str]]:
+        nargs = list(nargs)
         has_default = cls.default_path is not None
         assert has_default or config_path is not None, \
             "No default path to use, provide a specific config path"
@@ -54,7 +61,7 @@ class Config:
                 names += ['--' + k.replace('_', '-')]
             return names
 
-        if nargs is not None and len(nargs) > 0:
+        if len(nargs) > 0:
             parser = ArgumentParser()
             for k, v in cfg_dict.items():
                 parser.add_argument(*_argnames(k), type=type(v), default=v)
@@ -65,8 +72,14 @@ class Config:
         logger.info('Loaded the following {} options:'.format(cls.__name__))
         obj.print()
 
-        if nargs is not None:
-            return obj, nargs
+        return obj, nargs
+
+    @classmethod
+    def load(
+        cls: T,
+        config_path: Optional[Path] = None
+    ) -> T:
+        obj, _ = cls.load_nargs(config_path)
         return obj
 
     def print(self):
@@ -145,6 +158,36 @@ class TrainConfig(Config):
 
     intervals: TrainIntervalConfig
     """Intervals to be used during training."""
+
+    @dataclass
+    class DistillConfig:
+        alpha_dist: float
+        """Alpha distance."""
+
+        init_data_bsize: int
+        """Batch size of points when initializing dataset, at the beginning
+           of training each new batch of nodes."""
+
+        nets_bsize: int
+        """No. of subnetworks to simultaneously train during one round of
+           training."""
+
+        quantile: float
+        """Quantile to use during metric evaluation."""
+
+        test_bsize: int
+        """Batch size of points when evaluating all subnetworks."""
+
+        test_samples_pnet: int
+        """No. of points for evaluating each subnetwork."""
+
+        train_bsize: int
+        """Batch size of points when training all subnetworks."""
+
+        train_samples_pnet: int
+        """No. of points for training each subnetwork."""
+
+    distill: Optional[DistillConfig]
 
     rng_seed: int
     """Seed for NumPy / PyTorch randomized number generators."""

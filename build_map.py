@@ -5,7 +5,6 @@ import torch
 
 from config import DatasetConfig, NetworkConfig, OccupancyGridConfig
 from networks.nerf import create_single_nerf
-# from utils import load_ckpt_path, load_matrix, batch, create_logger
 import utils
 
 
