@@ -79,6 +79,7 @@ class MultiNerf(Nerf):
             num_networks (int): No. of networks.
             nerf_params: refer to parent class documentation.
         """
+        self._nerf_params = nerf_params
         self.num_networks = num_networks
         if network_seed is not None:
             MultiLinear.set_rng_cm(network_seed)
@@ -92,6 +93,17 @@ class MultiNerf(Nerf):
     def get_linear(self, in_channels, out_channels):
         return MultiLinear(
             self.num_networks, in_channels, out_channels, self.activation)
+
+    @torch.no_grad()
+    def extract(self, idx: int) -> Nerf:
+        single_model = Nerf(**self._nerf_params)
+        for name, module in self.named_modules():
+            if isinstance(module, MultiLinear):
+                single_module = single_model.get_submodule(name)
+                single_module.weight.data = module.weight.data[idx]
+                single_module.bias.data = module.bias.data[idx, 0]
+
+        return single_model
 
 
 def create_multi_nerf(

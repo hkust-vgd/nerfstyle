@@ -2,9 +2,7 @@ from collections import deque
 from functools import partial
 import itertools
 from pathlib import Path
-from sys import getsizeof
 from typing import Dict, Iterable, List, Optional
-from cv2 import reduce
 
 import einops
 import numpy as np
@@ -35,8 +33,8 @@ class Node:
         self.idx = idx
         self.min_pt, self.max_pt = np.array(min_pt), np.array(max_pt)
         self.net: Optional[Nerf] = None
-        self.leq_child: Optional[Node] = None
-        self.gt_child: Optional[Node] = None
+        # self.leq_child: Optional[Node] = None
+        # self.gt_child: Optional[Node] = None
         self.log_path = log_dir / 'node_{}.log'.format(idx)
 
     def log_init(self):
@@ -49,18 +47,33 @@ class Node:
         with open(self.log_path, 'a') as f:
             f.write(msg + '\n')
 
+    def export_ckpt(self):
+        ckpt = {
+            'idx': self.idx,
+            'min_pt': self.min_pt,
+            'max_pt': self.max_pt,
+            'log_path': str(self.log_path),
+            'started': (self.net is not None)
+        }
+        if ckpt['started']:
+            ckpt['model'] = self.net.state_dict()
+        return ckpt
+
 
 class NodeQueue(deque):
     def __init__(
         self,
-        iterable: Iterable[Node] = ...,
-        maxlen: Optional[int] = None
+        iterable: Iterable[Node] = ()
     ) -> None:
-        super().__init__(iterable, maxlen)
+        super().__init__(iterable)
 
     def batch_popleft(self, count: int) -> List[Node]:
         batch = [self.popleft() for _ in range(min(len(self), count))]
         return batch
+
+    def batch_push(self, nodes: List[Node]) -> None:
+        for node in nodes:
+            self.append(node)
 
 
 class DistillDataset(Dataset):
@@ -114,6 +127,7 @@ class DistillTrainer(Trainer):
         self.test_log_dir.mkdir(parents=True, exist_ok=True)
         self.root_nodes = self._generate_nodes()
         self.nodes_queue = NodeQueue(self.root_nodes)
+        self.trained_nodes = NodeQueue()
 
         # Load teacher model
         if args.teacher_ckpt_path is None:
@@ -128,6 +142,7 @@ class DistillTrainer(Trainer):
         self.losses = ['mse', 'mae', 'mape']
         self.metrics = self.losses + ['se_q99']
         self.metric_items = ['all', 'color', 'alpha']
+        self.round_ctr = 0
 
         # Entities initialized when training new batch of nodes
         self.num_nets = 0
@@ -210,11 +225,12 @@ class DistillTrainer(Trainer):
         dataset = DistillDataset(pts_norm, dirs, colors, alphas)
         return dataset
 
-    def _reset_trainer(self) -> None:
-        """
-        Resets model, optimizer and datasets. Performed once before training a
-        new batch of nodes.
-        """
+    def _init_round(self) -> None:
+        """ Initializes a new round of training. """
+        self.round_ctr += 1
+        self.iter_ctr = 0
+        self.logger.info('Starting round #' + str(self.round_ctr))
+
         self.cur_nodes = self.nodes_queue.batch_popleft(
             self.train_cfg.distill.nets_bsize)
         for node in self.cur_nodes:
@@ -325,6 +341,44 @@ class DistillTrainer(Trainer):
         }
         super().print_status(status_dict)
 
+    def save_ckpt(self):
+        self.logger.info('Extracting networks...')
+        for i in tqdm(range(self.num_nets)):
+            self.cur_nodes[i].net = self.model.extract(i)
+
+        is_final = (self.iter_ctr == self.train_cfg.num_iterations)
+        if is_final:
+            self.trained_nodes.batch_push(self.cur_nodes)
+            self.cur_nodes = []
+
+        cur_nodes = [node.export_ckpt() for node in self.cur_nodes]
+        empty_nodes = [node.export_ckpt() for node in self.nodes_queue]
+        trained_nodes = [node.export_ckpt() for node in self.trained_nodes]
+
+        ckpt_dict = {
+            'round': self.round_ctr,
+            'iter': self.iter_ctr,
+            'current': cur_nodes,
+            'empty': empty_nodes,
+            'trained': trained_nodes,
+            'optim': self.optim.state_dict(),
+            'rng_states': {
+                'np': np.random.get_state(),
+                'torch': torch.get_rng_state(),
+                'torch_cuda': torch.cuda.get_rng_state()
+            }
+        }
+        if is_final:
+            ckpt_fn = 'round_{:d}_final.pth'.format(self.round_ctr)
+        else:
+            iter_str = 'iter_{:0{width}d}'.format(
+                self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
+            ckpt_fn = 'round_{:d}_{}.pth'.format(self.round_ctr, iter_str)
+        ckpt_path = self.log_dir / ckpt_fn
+
+        torch.save(ckpt_dict, ckpt_path)
+        self.logger.info('Saved checkpoint at {}'.format(ckpt_path))
+
     @torch.no_grad()
     def test_networks(self):
         self.logger.info('Running evaluation...')
@@ -361,9 +415,6 @@ class DistillTrainer(Trainer):
             super().print_status(log_dict, phase='TEST', out_fn=log_fn)
 
     def run_iter(self):
-        if self.iter_ctr == 0:
-            self._reset_trainer()
-
         # Optimize
         self.optim.zero_grad()
         batch = next(self.train_loader)
@@ -385,5 +436,12 @@ class DistillTrainer(Trainer):
             self.print_status(mse_loss)
         if self.check_interval(self.train_cfg.intervals.test, after=-1):
             self.test_networks()
+        if self.check_interval(self.train_cfg.intervals.ckpt, final=True):
+            self.save_ckpt()
 
-        # TODO: Split nodes if necessary
+    def run(self):
+        while self.nodes_queue:
+            self._init_round()
+            super().run()  # Run loop
+            self.logger.info('{:d} / {:d} networks completed'.format(
+                len(self.trained_nodes), len(self.root_nodes)))
