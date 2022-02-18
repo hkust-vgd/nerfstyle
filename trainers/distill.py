@@ -14,8 +14,8 @@ from tqdm import tqdm
 from typeguard import typechecked
 
 from .base import Trainer
-from networks.nerf import Nerf, create_single_nerf
-from networks.multi_nerf import create_multi_nerf
+from networks.nerf import Nerf, SingleNerf
+from networks.multi_nerf import StaticMultiNerf
 import utils
 
 
@@ -134,9 +134,8 @@ class DistillTrainer(Trainer):
             self.logger.error('Please provide path to teacher model')
 
         ckpt = utils.load_ckpt_path(args.teacher_ckpt_path, self.logger)
-        self.teacher = create_single_nerf(self.net_cfg).to(self.device)
+        self.teacher = SingleNerf.create_nerf(self.net_cfg).to(self.device)
         self.teacher.load_state_dict(ckpt, strict=False)
-        self.teacher.eval()
         self.logger.info('Loaded teacher model ' + str(self.teacher))
 
         self.losses = ['mse', 'mae', 'mape']
@@ -237,8 +236,8 @@ class DistillTrainer(Trainer):
             node.log_init()
         self.num_nets = len(self.cur_nodes)
 
-        self.model = create_multi_nerf(self.num_nets, self.net_cfg).to(
-            self.device)
+        self.model = StaticMultiNerf.create_nerf(
+            self.num_nets, self.net_cfg).to(self.device)
         self.logger.info('Created student model ' + str(self.model))
         self.optim = torch.optim.Adam(
             self.model.parameters(),

@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from config import DatasetConfig, NetworkConfig, OccupancyGridConfig
-from networks.nerf import create_single_nerf
+from networks.nerf import SingleNerf
 import utils
 
 
@@ -49,7 +49,7 @@ def main():
 
     # Load embedders and model
     ckpt = utils.load_ckpt_path(args.weights_path, logger)
-    model = create_single_nerf(net_cfg).to(device)
+    model = SingleNerf.create_nerf(net_cfg).to(device)
     model.load_state_dict(ckpt, strict=False)
     model.eval()
     logger.info('Loaded model from "{}"'.format(args.weights_path))

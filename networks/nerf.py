@@ -1,6 +1,7 @@
+from __future__ import annotations
 import torch
 from torch import nn
-from typing import List, Optional
+from typing import List
 
 from config import NetworkConfig
 from networks.embedder import Embedder
@@ -33,8 +34,8 @@ class Nerf(nn.Module):
         self.skip = skip
         self.activation = activation
 
-        self.x_embedder, self.d_embedder = None, None
-        self._create_embedders(x_enc_counts, d_enc_counts)
+        self.x_embedder = self.get_embedder(x_enc_counts)
+        self.d_embedder = self.get_embedder(d_enc_counts)
         x_channels = self.x_embedder.out_channels
         d_channels = self.d_embedder.out_channels
 
@@ -63,9 +64,9 @@ class Nerf(nn.Module):
 
         self.activation = activations_dict[activation]
 
-    def _create_embedders(self, x_enc_counts, d_enc_counts):
-        self.x_embedder = Embedder(x_enc_counts)
-        self.d_embedder = Embedder(d_enc_counts)
+    @staticmethod
+    def get_embedder(enc_counts):
+        return Embedder(enc_counts)
 
     @staticmethod
     def get_linear(in_channels, out_channels):
@@ -92,17 +93,31 @@ class Nerf(nn.Module):
         return c, a
 
 
-def create_single_nerf(
-    net_cfg: NetworkConfig
-) -> Nerf:
-    nerf_config = {
-        'x_enc_counts': net_cfg.x_enc_count,
-        'd_enc_counts': net_cfg.d_enc_count,
-        'x_layers': 8,
-        'x_width': 256,
-        'd_widths': [256, 128],
-        'activation': net_cfg.activation,
-        'skip': [5]
-    }
-    model = Nerf(**nerf_config)
-    return model
+class SingleNerf(Nerf):
+    def __init__(self, **nerf_params) -> None:
+        super().__init__(**nerf_params)
+
+    @staticmethod
+    def get_embedder(enc_counts):
+        return Embedder(enc_counts)
+
+    @staticmethod
+    def get_linear(in_channels, out_channels):
+        return nn.Linear(in_channels, out_channels)
+
+    @classmethod
+    def create_nerf(
+        cls,
+        net_cfg: NetworkConfig
+    ) -> SingleNerf:
+        nerf_config = {
+            'x_enc_counts': net_cfg.x_enc_count,
+            'd_enc_counts': net_cfg.d_enc_count,
+            'x_layers': 8,
+            'x_width': 256,
+            'd_widths': [256, 128],
+            'activation': net_cfg.activation,
+            'skip': [5]
+        }
+        model = cls(**nerf_config)
+        return model

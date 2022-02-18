@@ -4,23 +4,31 @@ import torch
 from torch.utils.data import DataLoader
 
 from data.nsvf_dataset import NSVFDataset
-from networks.nerf import create_single_nerf
-from utils import batch, compute_psnr, cycle
+from networks.nerf import SingleNerf
+from networks.multi_nerf import DynamicMultiNerf
+import utils
 from .base import Trainer
 
 
-class PretrainTrainer(Trainer):
+class End2EndTrainer(Trainer):
     def __init__(self, args, nargs):
         super().__init__(__name__, args, nargs)
 
         # Initialize model
-        self.model = create_single_nerf(self.net_cfg).to(self.device)
+        if args.mode == 'pretrain':
+            self.model = SingleNerf.create_nerf(self.net_cfg)
+        # elif args.mode == 'finetune':
+        #     self.model = DynamicMultiNerf.create_nerf(
+        #         self.num_nets, self.net_cfg)
+        self.model = self.model.to(self.device)
         self.logger.info('Created model ' + str(self.model))
 
         # Initialize optimizer
-        self.optim = torch.optim.Adam(params=self.model.parameters(),
-                                      lr=self.train_cfg.initial_learning_rate,
-                                      betas=(0.9, 0.999))
+        self.optim = torch.optim.Adam(
+            params=self.model.parameters(),
+            lr=self.train_cfg.initial_learning_rate,
+            betas=(0.9, 0.999)
+        )
 
         # Load checkpoint if provided
         if args.ckpt_path is None:
@@ -30,8 +38,8 @@ class PretrainTrainer(Trainer):
 
         # Initialize dataset
         self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
-        self.train_loader = cycle(DataLoader(self.train_set, batch_size=None,
-                                             shuffle=True))
+        self.train_loader = utils.cycle(DataLoader(
+            self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
     @staticmethod
@@ -115,8 +123,8 @@ class PretrainTrainer(Trainer):
             dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
 
         rgbs, densities = [], []
-        for pts_batch, dirs_batch in batch(pts_flat, dirs_flat,
-                                           bsize=self.net_cfg.pts_bsize):
+        for pts_batch, dirs_batch in utils.batch(pts_flat, dirs_flat,
+                                                 bsize=self.net_cfg.pts_bsize):
             out_c, out_a = self.model(pts_batch, dirs_batch)
             rgbs.append(out_c)
             densities.append(out_a)
@@ -128,7 +136,7 @@ class PretrainTrainer(Trainer):
 
         rgb_map = self.lib.integrate_points(dists, rgbs, densities, bg_color)
         loss = self.calc_loss(rendered=rgb_map, target=target)
-        psnr = compute_psnr(loss)
+        psnr = utils.compute_psnr(loss)
 
         self.optim.zero_grad()
         loss.backward()

@@ -1,69 +1,12 @@
-from contextlib import nullcontext
-from math import sqrt
-from typing import Optional
+from __future__ import annotations
+from turtle import forward
+from typing import List, Optional
 import torch
-from torch import nn
-from torchtyping import TensorType
 
 from config import NetworkConfig
-from networks.embedder import MultiEmbedder
-import utils
+from networks.embedder import Embedder, MultiEmbedder
+from networks.linears import MultiLinear, StaticMultiLinear, DynamicMultiLinear
 from .nerf import Nerf
-
-
-# Patch function with version generalized for multi-model networks.
-# NOTE: Explicit references to this function in modules loaded prior
-# to this point will not be affected by this patch.
-nn.init._calculate_fan_in_and_fan_out = lambda t: (t.size(-1), t.size(-2))
-
-
-def standard_uniform_(tensor):
-    bound = 1. / sqrt(tensor.size(-1))
-    nn.init.uniform_(tensor, -bound, bound)
-
-
-class MultiLinear(nn.Module):
-    rng_cm = nullcontext()
-
-    @classmethod
-    def set_rng_cm(cls, seed: int):
-        cls.rng_cm = utils.RNGContextManager(seed)
-
-    def __init__(
-        self,
-        num_networks: int,
-        in_features: int,
-        out_features: int,
-        activation: str,
-    ) -> None:
-        super().__init__()
-
-        self.num_networks = num_networks
-        self.in_features = in_features
-        self.out_features = out_features
-
-        self.weight = nn.Parameter(torch.Tensor(
-            num_networks, out_features, in_features))
-        self.bias = nn.Parameter(torch.Tensor(
-            num_networks, 1, out_features))
-
-        with MultiLinear.rng_cm:
-            nn.init.kaiming_uniform_(self.weight, a=sqrt(5),
-                                     nonlinearity=activation)
-            standard_uniform_(self.bias)
-
-    def forward(
-        self,
-        x: TensorType['num_networks', 'batch_size', 'in_channels']
-    ) -> TensorType['num_networks', 'batch_size', 'out_channels']:
-        weight_transpose = self.weight.permute(0, 2, 1)
-        product = torch.bmm(x, weight_transpose)
-        result = product + self.bias
-        return result
-
-    def __repr__(self) -> str:
-        attrs = ['num_networks', 'in_features', 'out_features']
-        return utils.get_repr(self, attrs)
 
 
 class MultiNerf(Nerf):
@@ -86,13 +29,22 @@ class MultiNerf(Nerf):
 
         super().__init__(**nerf_params)
 
-    def _create_embedders(self, x_enc_counts, d_enc_counts):
-        self.x_embedder = MultiEmbedder(x_enc_counts)
-        self.d_embedder = MultiEmbedder(d_enc_counts)
-
-    def get_linear(self, in_channels, out_channels):
-        return MultiLinear(
-            self.num_networks, in_channels, out_channels, self.activation)
+    @classmethod
+    def create_nerf(
+        cls,
+        num_networks: int,
+        net_cfg: NetworkConfig
+    ) -> MultiNerf:
+        nerf_config = {
+            'x_enc_counts': net_cfg.x_enc_count,
+            'd_enc_counts': net_cfg.d_enc_count,
+            'x_layers': 2,
+            'x_width': 32,
+            'd_widths': [32, 32],
+            'activation': net_cfg.activation
+        }
+        model = cls(num_networks, net_cfg.network_seed, **nerf_config)
+        return model
 
     @torch.no_grad()
     def extract(self, idx: int) -> Nerf:
@@ -105,18 +57,41 @@ class MultiNerf(Nerf):
 
         return single_model
 
+    def load_state_dict(self, state_dict, strict):
+        return super().load_state_dict(state_dict, strict)
 
-def create_multi_nerf(
-    num_networks: int,
-    net_cfg: NetworkConfig
-) -> MultiNerf:
-    nerf_config = {
-        'x_enc_counts': net_cfg.x_enc_count,
-        'd_enc_counts': net_cfg.d_enc_count,
-        'x_layers': 2,
-        'x_width': 32,
-        'd_widths': [32, 32],
-        'activation': net_cfg.activation
-    }
-    model = MultiNerf(num_networks, net_cfg.network_seed, **nerf_config)
-    return model
+
+class StaticMultiNerf(MultiNerf):
+    def __init__(self, *params, **nerf_params) -> None:
+        """
+        Accepts a 2D batch (N, B) of input, i.e. each sub-network receives the
+        same no. of input samples to evaluate. Used during distillation stage.
+        """
+        super().__init__(*params, **nerf_params)
+
+    @staticmethod
+    def get_embedder(enc_counts):
+        return MultiEmbedder(enc_counts)
+
+    def get_linear(self, in_channels, out_channels):
+        return StaticMultiLinear(
+            self.num_networks, in_channels, out_channels, self.activation)
+
+
+class DynamicMultiNerf(MultiNerf):
+    def __init__(self, *params, **nerf_params) -> None:
+        """
+        Accepts a 1D batch (B, ) of input. Each input sample is delegated to
+        corresponding sub-network based on its position. Each sub-network
+        receives an unequal no. of input samples. Used during finetuning stage
+        and inference.
+        """
+        super().__init__(*params, **nerf_params)
+
+    def get_linear(self, in_channels, out_channels):
+        return DynamicMultiLinear(
+            self.num_networks, in_channels, out_channels, self.activation)
+
+    def forward(self, pt, dir=None):
+        # TODO: map global to local coordinates
+        super().forward(pt, dir)
