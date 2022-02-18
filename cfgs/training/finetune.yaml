@@ -1,0 +1,6 @@
+num_iterations: 150000
+intervals:
+  print: 1
+  log: 0
+  ckpt: 10000
+  test: 500

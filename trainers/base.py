@@ -38,6 +38,9 @@ class Trainer:
         torch.cuda.manual_seed(self.train_cfg.rng_seed)
 
     def check_interval(self, interval, after=0, final=False):
+        if interval <= 0:
+            return False
+
         is_final = (self.iter_ctr == self.train_cfg.num_iterations) and final
         flag = (((self.iter_ctr % interval == 0) or is_final) and
                 (self.iter_ctr > after))

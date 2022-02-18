@@ -62,7 +62,7 @@ class Nerf(nn.Module):
             'tanh': nn.Tanh()
         }
 
-        self.activation = activations_dict[activation]
+        self.actv = activations_dict[activation]
 
     @staticmethod
     def get_embedder(enc_counts):
@@ -72,24 +72,30 @@ class Nerf(nn.Module):
     def get_linear(in_channels, out_channels):
         return nn.Linear(in_channels, out_channels)
 
-    def forward(self, pt, dir=None):
-        x = self.x_embedder(pt)
+    def forward(self, pts, dirs, *args):
+        # If additional arguments are provided, bind them to every linear layer
+        def bind(layer):
+            if not args:
+                return layer
+            return lambda x: layer(x, *args)
+
+        x = self.x_embedder(pts)
         out = x
         for i, layer in enumerate(self.x_layers):
             if i in self.skip:
                 out = torch.cat([x, out], dim=-1)
-            out = self.activation(layer(out))
+            out = self.actv(bind(layer)(out))
 
-        a = self.a_layer(out)
-        if dir is None:
+        a = bind(self.a_layer)(out)
+        if dirs is None:
             return a
 
-        d = self.d_embedder(dir)
-        out = torch.cat([self.x2d_layer(out), d], dim=-1)
+        d = self.d_embedder(dirs)
+        out = torch.cat([bind(self.x2d_layer)(out), d], dim=-1)
         for layer in self.d_layers:
-            out = self.activation(layer(out))
+            out = self.actv(bind(layer)(out))
 
-        c = torch.sigmoid(self.c_layer(out))
+        c = torch.sigmoid(bind(self.c_layer)(out))
         return c, a
 
 

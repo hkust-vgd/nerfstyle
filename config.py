@@ -99,7 +99,7 @@ class DatasetConfig(Config):
     grid_res: tuple
     """Occupancy grid resolution for each dimension."""
 
-    network_res: tuple
+    net_res: tuple
     """Local NeRF grid resolution for each dimension."""
 
 

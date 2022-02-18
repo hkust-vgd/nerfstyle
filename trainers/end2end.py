@@ -17,9 +17,10 @@ class End2EndTrainer(Trainer):
         # Initialize model
         if args.mode == 'pretrain':
             self.model = SingleNerf.create_nerf(self.net_cfg)
-        # elif args.mode == 'finetune':
-        #     self.model = DynamicMultiNerf.create_nerf(
-        #         self.num_nets, self.net_cfg)
+        elif args.mode == 'finetune':
+            num_nets = np.prod(self.dataset_cfg.net_res)
+            self.model = DynamicMultiNerf.create_nerf(
+                num_nets, self.net_cfg, self.dataset_cfg)
         self.model = self.model.to(self.device)
         self.logger.info('Created model ' + str(self.model))
 
@@ -64,6 +65,12 @@ class End2EndTrainer(Trainer):
     def load_ckpt(self, ckpt_path):
         try:
             ckpt = torch.load(ckpt_path)
+            if 'model' not in ckpt.keys():
+                self.model.load_nodes(ckpt['trained'], self.device)
+                self.logger.info('Loaded distill checkpoint \"{}\"'.format(
+                    ckpt_path))
+                return
+
             self.iter_ctr = ckpt['iter']
             self.model.load_state_dict(ckpt['model'])
             self.optim.load_state_dict(ckpt['optim'])
@@ -122,18 +129,15 @@ class End2EndTrainer(Trainer):
         dirs_flat = torch.repeat_interleave(
             dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
 
-        rgbs, densities = [], []
-        for pts_batch, dirs_batch in utils.batch(pts_flat, dirs_flat,
-                                                 bsize=self.net_cfg.pts_bsize):
-            out_c, out_a = self.model(pts_batch, dirs_batch)
-            rgbs.append(out_c)
-            densities.append(out_a)
+        rgbs = torch.empty((len(pts_flat), 3)).to(self.device)
+        densities = torch.empty((len(pts_flat), 1)).to(self.device)
+        utils.batch_exec(self.model, rgbs, densities,
+                         bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
+        rgbs = rgbs.reshape(*dists.shape, 3)
+        densities = densities.reshape(dists.shape)
 
         # Compute loss and update weights
-        rgbs = torch.concat(rgbs, dim=0).reshape(pts.shape)
-        densities = torch.concat(densities, dim=0).reshape(pts.shape[:-1])
         bg_color = torch.tensor(self.train_set.bg_color).to(self.device)
-
         rgb_map = self.lib.integrate_points(dists, rgbs, densities, bg_color)
         loss = self.calc_loss(rendered=rgb_map, target=target)
         psnr = utils.compute_psnr(loss)

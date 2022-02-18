@@ -77,5 +77,12 @@ class DynamicMultiLinear(MultiLinear):
         x: TensorType['batch_size', 'in_channels'],
         counts: TensorType['num_networks']
     ) -> TensorType['batch_size', 'out_channels']:
-        # TODO: Compute addmm for each network
-        raise NotImplementedError
+        weight_transpose = self.weight.permute(0, 2, 1)
+        result = torch.empty((len(x), self.out_features)).to(self.weight)
+        ptr = 0
+        for idx, count in enumerate(counts):
+            # (O, ) + (B, I) @ (I, O) = (B, O)
+            result[ptr:ptr+count] = torch.addmm(
+                self.bias[idx, 0], x[ptr:ptr+count], weight_transpose[idx])
+            ptr += count
+        return result

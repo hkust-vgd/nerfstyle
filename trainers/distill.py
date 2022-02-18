@@ -155,17 +155,17 @@ class DistillTrainer(Trainer):
         bbox_path = self.dataset_cfg.root_path / 'bbox.txt'
         min_pt, max_pt = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
 
-        network_res = self.dataset_cfg.network_res
+        net_res = self.dataset_cfg.net_res
         log_dir = self.test_log_dir
 
         intervals = [np.linspace(start, end, num+1) for start, end, num in
-                     zip(min_pt, max_pt, network_res)]
+                     zip(min_pt, max_pt, net_res)]
 
         node_idx_fmt = '{{:0{}d}}_{{:0{}d}}_{{:0{}d}}'.format(
-            *[len(str(dim)) for dim in network_res])
+            *[len(str(dim)) for dim in net_res])
 
         nodes = []
-        for pt in itertools.product(*[range(ax) for ax in network_res]):
+        for pt in itertools.product(*[range(ax) for ax in net_res]):
             node_id = node_idx_fmt.format(*pt)
             node_min_pt = [intervals[i][x] for i, x in enumerate(pt)]
             node_max_pt = [intervals[i][x+1] for i, x in enumerate(pt)]

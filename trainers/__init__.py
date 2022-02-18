@@ -3,7 +3,7 @@ from .base import Trainer
 
 # TODO: use importlib instead
 def get_trainer(args, nargs) -> Trainer:
-    if args.mode == 'pretrain':
+    if args.mode in ['pretrain', 'finetune']:
         from .end2end import End2EndTrainer
         return End2EndTrainer(args, nargs)
     elif args.mode == 'distill':

@@ -68,7 +68,7 @@ def batch_exec(
     def batch_func(*args):
         size = get_size(args[0], in_dim)
         main_loop = range(0, size, bsize)
-        test = tqdm(main_loop, total=size, disable=(not progress))
+        prog_bar = tqdm(main_loop, total=size, disable=(not progress))
         out_s = 0
         for in_s in main_loop:
             in_e = min(size, in_s + bsize)
@@ -84,8 +84,8 @@ def batch_exec(
             for d, bo in zip(dest, bout):
                 d[out_slice] = bo
             out_s += out_bsize
-            test.update(in_e - in_s)
-        test.close()
+            prog_bar.update(in_e - in_s)
+        prog_bar.close()
 
     return batch_func
 

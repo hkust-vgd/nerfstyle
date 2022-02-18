@@ -4,7 +4,7 @@ grid_res:
 - 144
 - 256
 - 160
-network_res:
+net_res:
 - 9
 - 16
 - 10
