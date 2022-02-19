@@ -1,4 +1,7 @@
+num_rays_per_batch: 8192
 num_iterations: 150000
+initial_learning_rate: 0.001
+learning_rate_decay: 500000
 intervals:
   print: 1
   log: 0

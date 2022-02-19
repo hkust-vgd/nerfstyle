@@ -36,6 +36,8 @@ class End2EndTrainer(Trainer):
             self.logger.info('Training model from scratch')
         else:
             self.load_ckpt(args.ckpt_path)
+            if args.occ_map is not None:
+                self.model.load_occ_map(args.occ_map, self.device)
 
         # Initialize dataset
         self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
@@ -63,7 +65,8 @@ class End2EndTrainer(Trainer):
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
 
     def load_ckpt(self, ckpt_path):
-        try:
+        @utils.loader(self.logger)
+        def _load(ckpt_path):
             ckpt = torch.load(ckpt_path)
             if 'model' not in ckpt.keys():
                 self.model.load_nodes(ckpt['trained'], self.device)
@@ -80,13 +83,7 @@ class End2EndTrainer(Trainer):
             torch.set_rng_state(rng_states['torch'])
             torch.cuda.set_rng_state(rng_states['torch_cuda'])
 
-        except FileNotFoundError:
-            self.logger.error(
-                'Checkpoint file \"{}\" not found'.format(ckpt_path))
-        except KeyError:
-            self.logger.error(
-                'Checkpoint file \"{}\" has invalid format'.format(ckpt_path))
-
+        _load(ckpt_path)
         self.logger.info('Loaded checkpoint \"{}\"'.format(ckpt_path))
         self.logger.info('Model now at iteration #{:d}'.format(self.iter_ctr))
 

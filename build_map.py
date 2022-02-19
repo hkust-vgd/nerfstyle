@@ -48,10 +48,14 @@ def main():
     all_samples = all_samples.to(device)
 
     # Load embedders and model
-    ckpt = utils.load_ckpt_path(args.weights_path, logger)
     model = SingleNerf.create_nerf(net_cfg).to(device)
-    model.load_state_dict(ckpt, strict=False)
-    model.eval()
+
+    @utils.loader(logger)
+    def _load(ckpt_path):
+        ckpt = torch.load(ckpt_path)['model']
+        model.load_state_dict(ckpt, strict=False)
+
+    _load(args.weights_path)
     logger.info('Loaded model from "{}"'.format(args.weights_path))
 
     # Compute occupancy grid
@@ -59,7 +63,7 @@ def main():
     vals = torch.empty(np.prod(dataset_cfg.grid_res))
 
     def compute_occupancy_batch(voxels_batch):
-        out = model(voxels_batch.reshape(-1, 3))
+        out = model(voxels_batch.reshape(-1, 3), None)
         out = out.reshape(grid_cfg.voxel_bsize, points_per_voxel)
         return torch.any(out > grid_cfg.threshold, dim=1)
     utils.batch_exec(compute_occupancy_batch, vals,
@@ -70,7 +74,13 @@ def main():
     logger.info('{} out of {} voxels ({:.2f}%) are occupied'.format(
         count, len(all_samples), count * 100 / len(all_samples)))
 
-    np.savez_compressed(save_path, map=occ_map.numpy())
+    save_dict = {
+        'map': occ_map.numpy(),
+        'global_min_pt': bbox_min,
+        'global_max_pt': bbox_max,
+        'res': dataset_cfg.grid_res
+    }
+    np.savez_compressed(save_path, **save_dict)
     logger.info('Saved to "{}".'.format(save_path))
 
 

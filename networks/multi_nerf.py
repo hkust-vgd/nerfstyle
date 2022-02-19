@@ -7,6 +7,7 @@ import torch
 from config import DatasetConfig, NetworkConfig
 from networks.embedder import Embedder, MultiEmbedder
 from networks.linears import MultiLinear, StaticMultiLinear, DynamicMultiLinear
+from occ_map import OccupancyGrid
 import utils
 from .nerf import Nerf
 
@@ -138,6 +139,7 @@ class DynamicMultiNerf(MultiNerf):
         and inference.
         """
         super().__init__(*params, **nerf_params)
+        self.occ_map = None
 
     @staticmethod
     def get_embedder(enc_counts):
@@ -146,6 +148,10 @@ class DynamicMultiNerf(MultiNerf):
     def get_linear(self, in_channels, out_channels):
         return DynamicMultiLinear(
             self.num_nets, in_channels, out_channels, self.activation)
+
+    def load_occ_map(self, map_path, device):
+        self.occ_map = OccupancyGrid.load(map_path, self.logger).to(device)
+        self.logger.info('Loaded occupancy map "{}"'.format(map_path))
 
     def map_to_nets_indices(self, pts):
         invalid = [(pts > self.global_max_pt), (pts < self.global_min_pt)]
@@ -164,18 +170,20 @@ class DynamicMultiNerf(MultiNerf):
         local_pts /= (self.voxel_size / 2)
         return local_pts
 
-    def forward(self, pts, dirs=None):
+    def forward(self, pts, dirs=None, *_):
         assert self._ready
 
-        # TODO: Handle case where dirs=None
-        tmp, valid = self.map_to_nets_indices(pts)
-        net_indices, order = torch.sort(tmp)
+        net_indices, valid = self.map_to_nets_indices(pts)
+        if self.occ_map is not None:
+            net_indices = torch.where(self.occ_map(pts), net_indices, -1)
+            valid = torch.sum(net_indices < 0).item()
+
+        net_indices, order = torch.sort(net_indices)
         counts = torch.bincount(net_indices[valid:], minlength=self.num_nets)
         sorted_pts, sorted_dirs = pts[order], dirs[order]
 
         # Perform global-to-local mapping
         local_pts = self.map_to_local(sorted_pts[valid:], counts)
-
         sorted_rgbs = torch.zeros((len(pts), 3)).to(local_pts)
         sorted_densities = torch.zeros((len(pts), 1)).to(local_pts)
         sorted_rgbs[valid:], sorted_densities[valid:] = \

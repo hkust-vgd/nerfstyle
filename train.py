@@ -10,6 +10,7 @@ def train():
     parser.add_argument('--name', default='tmp')
     parser.add_argument('--ckpt-path')
     parser.add_argument('--teacher-ckpt-path')
+    parser.add_argument('--occ-map')
 
     args, nargs = parser.parse_known_args()
     trainer = trainers.get_trainer(args, nargs)

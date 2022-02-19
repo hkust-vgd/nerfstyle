@@ -1,6 +1,8 @@
 from collections import namedtuple
+import functools
 import logging
 import sys
+import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 import torch
@@ -162,13 +164,22 @@ def load_matrix(path):
     return np.array(vals).astype(np.float32)
 
 
-def load_ckpt_path(path, logger):
-    try:
-        ckpt = torch.load(path)['model']
-    except FileNotFoundError:
-        logger.error(
-            'Checkpoint file \"{}\" not found'.format(path))
-    return ckpt
+def loader(logger=None):
+    def decorate(load_fn):
+        error_emitter = logger.error if logger is not None else sys.exit
+
+        @functools.wraps(load_fn)
+        def inner_loader(path):
+            try:
+                return load_fn(path)
+            except FileNotFoundError:
+                error_emitter('File \"{}\" not found'.format(path))
+            except KeyError:
+                traceback.print_exception(*sys.exc_info())
+                error_emitter('File \"{}\" has invalid format'.format(path))
+
+        return inner_loader
+    return decorate
 
 
 def reshape(*tensors: torch.Tensor, shape: Tuple[int]) -> Tuple[torch.Tensor]:

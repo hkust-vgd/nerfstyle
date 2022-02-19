@@ -5,6 +5,7 @@ from typing import List
 
 from config import NetworkConfig
 from networks.embedder import Embedder
+import utils
 
 
 class Nerf(nn.Module):
@@ -33,6 +34,7 @@ class Nerf(nn.Module):
         super(Nerf, self).__init__()
         self.skip = skip
         self.activation = activation
+        self.logger = utils.create_logger(__name__)
 
         self.x_embedder = self.get_embedder(x_enc_counts)
         self.d_embedder = self.get_embedder(d_enc_counts)

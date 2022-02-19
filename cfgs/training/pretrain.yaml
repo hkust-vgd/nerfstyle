@@ -1,2 +1,3 @@
+precrop_iterations: 10000
 learning_rate_decay: 500000
 num_iterations: 600000

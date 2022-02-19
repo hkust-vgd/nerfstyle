@@ -133,9 +133,14 @@ class DistillTrainer(Trainer):
         if args.teacher_ckpt_path is None:
             self.logger.error('Please provide path to teacher model')
 
-        ckpt = utils.load_ckpt_path(args.teacher_ckpt_path, self.logger)
         self.teacher = SingleNerf.create_nerf(self.net_cfg).to(self.device)
-        self.teacher.load_state_dict(ckpt, strict=False)
+
+        @utils.loader(self.logger)
+        def _load(ckpt_path):
+            ckpt = torch.load(ckpt_path)['model']
+            self.teacher.load_state_dict(ckpt, strict=False)
+
+        _load(args.args.teacher_ckpt_path)
         self.logger.info('Loaded teacher model ' + str(self.teacher))
 
         self.losses = ['mse', 'mae', 'mape']
