@@ -140,6 +140,7 @@ class DynamicMultiNerf(MultiNerf):
         """
         super().__init__(*params, **nerf_params)
         self.occ_map = None
+        self.clock = utils.Clock()
 
     @staticmethod
     def get_embedder(enc_counts):
@@ -154,7 +155,7 @@ class DynamicMultiNerf(MultiNerf):
         self.logger.info('Loaded occupancy map "{}"'.format(map_path))
 
     def map_to_nets_indices(self, pts):
-        invalid = [(pts > self.global_max_pt), (pts < self.global_min_pt)]
+        invalid = [(pts >= self.global_max_pt), (pts < self.global_min_pt)]
         invalid = torch.any(torch.cat(invalid, dim=-1), dim=-1)  # (N, )
         indices = (pts - self.global_min_pt) / self.voxel_size
         indices = torch.sum(indices.to(self.basis) * self.basis, dim=-1)
@@ -172,6 +173,7 @@ class DynamicMultiNerf(MultiNerf):
 
     def forward(self, pts, dirs=None, *_):
         assert self._ready
+        self.clock.reset()
 
         net_indices, valid = self.map_to_nets_indices(pts)
         if self.occ_map is not None:
@@ -181,13 +183,17 @@ class DynamicMultiNerf(MultiNerf):
         net_indices, order = torch.sort(net_indices)
         counts = torch.bincount(net_indices[valid:], minlength=self.num_nets)
         sorted_pts, sorted_dirs = pts[order], dirs[order]
+        self.clock.click('sort + filter dirs')
 
         # Perform global-to-local mapping
         local_pts = self.map_to_local(sorted_pts[valid:], counts)
+        self.clock.click('global to local')
+
         sorted_rgbs = torch.zeros((len(pts), 3)).to(local_pts)
         sorted_densities = torch.zeros((len(pts), 1)).to(local_pts)
         sorted_rgbs[valid:], sorted_densities[valid:] = \
             super().forward(local_pts, sorted_dirs[valid:], counts)
+        self.clock.click('evaluate')
 
         rgbs = torch.empty_like(sorted_rgbs)
         densities = torch.empty_like(sorted_densities)

@@ -2,6 +2,7 @@ from collections import namedtuple
 import functools
 import logging
 import sys
+from time import time
 import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
@@ -189,6 +190,21 @@ def reshape(*tensors: torch.Tensor, shape: Tuple[int]) -> Tuple[torch.Tensor]:
 def to_device(old_dict: Dict[str, torch.Tensor], device: str):
     new_dict = {k: v.to(device) for k, v in old_dict.items()}
     return new_dict
+
+
+class Clock:
+    def __init__(self):
+        self.prev = None
+        self.reset()
+
+    def reset(self):
+        self.prev = time()
+
+    def click(self, msg, reset=True):
+        out = time() - self.prev
+        if reset:
+            self.reset()
+        print('Event "{}": {:.3f}s'.format(msg, out))
 
 
 class ExitHandler(logging.StreamHandler):
