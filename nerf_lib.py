@@ -2,13 +2,17 @@ import numpy as np
 import torch
 from einops import reduce
 from typing import Optional, Tuple
+from torch.utils.cpp_extension import load
 from torchtyping import TensorType
 
 from config import NetworkConfig, TrainConfig
 from data.nsvf_dataset import NSVFDataset as Dataset
 from ray_batch import RayBatch
-from networks.embedder import Embedder
 import utils
+
+nerf_cuda_lib = load(
+    'nerf_cuda_lib', ['cuda/nerf_lib.cpp', 'cuda/global_to_local.cu'],
+    verbose=True, extra_cflags=['-w'])
 
 
 class NerfLib:
@@ -136,3 +140,23 @@ class NerfLib:
         res = (1 - acc_map)[..., None]
         rgb_map = rgb_map + res * bg_color
         return rgb_map
+
+    @staticmethod
+    def global_to_local(
+        points: TensorType['batch_size', 3],
+        mid_points: TensorType['num_nets', 3],
+        voxel_size: TensorType[3],
+        batch_sizes: TensorType['num_nets']
+    ) -> TensorType['batch_size', 3]:
+        nerf_cuda_lib.global_to_local(
+            points, mid_points, voxel_size, batch_sizes)
+        return points
+
+    # def map_to_local(self, global_pts, counts):
+    #     local_pts = torch.empty_like(global_pts)
+    #     ptr = 0
+    #     for mid_pt, count in zip(self.mid_pts, counts):
+    #         local_pts[ptr:ptr+count] = global_pts[ptr:ptr+count] - mid_pt
+    #         ptr += count
+    #     local_pts /= (self.voxel_size / 2)
+    #     return local_pts

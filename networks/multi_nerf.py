@@ -7,6 +7,7 @@ import torch
 from config import DatasetConfig, NetworkConfig
 from networks.embedder import Embedder, MultiEmbedder
 from networks.linears import MultiLinear, StaticMultiLinear, DynamicMultiLinear
+from nerf_lib import NerfLib
 from occ_map import OccupancyGrid
 import utils
 from .nerf import Nerf
@@ -186,13 +187,14 @@ class DynamicMultiNerf(MultiNerf):
         self.clock.click('sort + filter dirs')
 
         # Perform global-to-local mapping
-        local_pts = self.map_to_local(sorted_pts[valid:], counts)
+        NerfLib.global_to_local(
+            sorted_pts[valid:], self.mid_pts, self.voxel_size, counts)
         self.clock.click('global to local')
 
-        sorted_rgbs = torch.zeros((len(pts), 3)).to(local_pts)
-        sorted_densities = torch.zeros((len(pts), 1)).to(local_pts)
+        sorted_rgbs = torch.zeros((len(pts), 3)).to(sorted_pts)
+        sorted_densities = torch.zeros((len(pts), 1)).to(sorted_pts)
         sorted_rgbs[valid:], sorted_densities[valid:] = \
-            super().forward(local_pts, sorted_dirs[valid:], counts)
+            super().forward(sorted_pts[valid:], sorted_dirs[valid:], counts)
         self.clock.click('evaluate')
 
         rgbs = torch.empty_like(sorted_rgbs)
