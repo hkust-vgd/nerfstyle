@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import torch
 from einops import reduce
@@ -10,16 +11,28 @@ from data.nsvf_dataset import NSVFDataset as Dataset
 from ray_batch import RayBatch
 import utils
 
-nerf_cuda_lib = load(
-    'nerf_cuda_lib', ['cuda/nerf_lib.cpp', 'cuda/global_to_local.cu'],
-    verbose=True, extra_cflags=['-w'])
-
 
 class NerfLib:
     def __init__(self, net_cfg: NetworkConfig, train_cfg: TrainConfig, device):
         self.net_cfg = net_cfg
         self.train_cfg = train_cfg
         self.device = device
+
+        # Load cuda
+        EXT_NAME = 'nerf_cuda_lib'
+        EXT_MAIN_CPP_FN = 'nerf_lib.cpp'
+
+        cuda_dir = Path('./cuda')
+        cuda_paths = [p for p in cuda_dir.iterdir() if p.suffix == '.cu']
+        cuda_modules = [p.stem for p in cuda_paths]
+        cuda_load_paths = [str(cuda_dir / EXT_MAIN_CPP_FN)] + \
+            [str(p) for p in cuda_paths]
+
+        cuda_lib = load(
+            EXT_NAME, cuda_load_paths, verbose=True, extra_cflags=['-w'])
+        for module in cuda_modules:
+            assert module in dir(cuda_lib)
+            setattr(self, module, getattr(cuda_lib, module))
 
     def generate_rays(
         self,
@@ -148,15 +161,27 @@ class NerfLib:
         voxel_size: TensorType[3],
         batch_sizes: TensorType['num_nets']
     ) -> TensorType['batch_size', 3]:
-        nerf_cuda_lib.global_to_local(
-            points, mid_points, voxel_size, batch_sizes)
-        return points
+        local_points = torch.empty_like(points)
+        ptr = 0
+        for mid_point, bsize in zip(mid_points, batch_sizes):
+            local_points[ptr:ptr+bsize] = points[ptr:ptr+bsize] - mid_point
+            ptr += bsize
+        local_points /= (voxel_size / 2)
+        return local_points
 
-    # def map_to_local(self, global_pts, counts):
-    #     local_pts = torch.empty_like(global_pts)
-    #     ptr = 0
-    #     for mid_pt, count in zip(self.mid_pts, counts):
-    #         local_pts[ptr:ptr+count] = global_pts[ptr:ptr+count] - mid_pt
-    #         ptr += count
-    #     local_pts /= (self.voxel_size / 2)
-    #     return local_pts
+
+class NerfLibManager:
+    def __init__(self) -> None:
+        self._lib = None
+
+    def init(self, net_cfg: NetworkConfig, train_cfg: TrainConfig, device):
+        self._lib = NerfLib(net_cfg, train_cfg, device)
+
+    def __getattr__(self, name):
+        if self._lib is None:
+            raise RuntimeError('Library not initialized; run "init()" first')
+        return getattr(self._lib, name)
+
+
+# Global instance
+nerf_lib = NerfLibManager()

@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from data.nsvf_dataset import NSVFDataset
 from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
+from nerf_lib import nerf_lib
 import utils
 from .base import Trainer
 
@@ -115,11 +116,11 @@ class End2EndTrainer(Trainer):
         precrop = None
         if self.iter_ctr < self.train_cfg.precrop_iterations:
             precrop = self.train_cfg.precrop_fraction
-        target, rays = self.lib.generate_rays(
+        target, rays = nerf_lib.generate_rays(
             img, pose, self.train_set, precrop=precrop)
 
         # Render rays
-        pts, dists = self.lib.sample_points(rays)
+        pts, dists = nerf_lib.sample_points(rays)
         dirs = rays.viewdirs()
 
         pts_flat = pts.reshape(-1, 3)
@@ -135,7 +136,7 @@ class End2EndTrainer(Trainer):
 
         # Compute loss and update weights
         bg_color = torch.tensor(self.train_set.bg_color).to(self.device)
-        rgb_map = self.lib.integrate_points(dists, rgbs, densities, bg_color)
+        rgb_map = nerf_lib.integrate_points(dists, rgbs, densities, bg_color)
         loss = self.calc_loss(rendered=rgb_map, target=target)
         psnr = utils.compute_psnr(loss)
 

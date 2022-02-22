@@ -4,7 +4,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 import config
-from nerf_lib import NerfLib
+from nerf_lib import nerf_lib
 from utils import create_logger
 
 
@@ -28,7 +28,8 @@ class Trainer:
             self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 
         self.device = torch.device('cuda:0')
-        self.lib = NerfLib(self.net_cfg, self.train_cfg, self.device)
+        nerf_lib.init(self.net_cfg, self.train_cfg, self.device)
+
         self.writer = None
         if self.train_cfg.intervals.log > 0:
             self.writer = SummaryWriter(log_dir=self.log_dir)

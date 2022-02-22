@@ -7,7 +7,7 @@ import torch
 from config import DatasetConfig, NetworkConfig
 from networks.embedder import Embedder, MultiEmbedder
 from networks.linears import MultiLinear, StaticMultiLinear, DynamicMultiLinear
-from nerf_lib import NerfLib
+from nerf_lib import nerf_lib
 from occ_map import OccupancyGrid
 import utils
 from .nerf import Nerf
@@ -141,7 +141,7 @@ class DynamicMultiNerf(MultiNerf):
         """
         super().__init__(*params, **nerf_params)
         self.occ_map = None
-        self.clock = utils.Clock()
+        # self.clock = utils.Clock()
 
     @staticmethod
     def get_embedder(enc_counts):
@@ -163,18 +163,9 @@ class DynamicMultiNerf(MultiNerf):
         indices[invalid] = -1
         return indices, torch.sum(invalid).item()
 
-    def map_to_local(self, global_pts, counts):
-        local_pts = torch.empty_like(global_pts)
-        ptr = 0
-        for mid_pt, count in zip(self.mid_pts, counts):
-            local_pts[ptr:ptr+count] = global_pts[ptr:ptr+count] - mid_pt
-            ptr += count
-        local_pts /= (self.voxel_size / 2)
-        return local_pts
-
     def forward(self, pts, dirs=None, *_):
         assert self._ready
-        self.clock.reset()
+        # self.clock.reset()
 
         net_indices, valid = self.map_to_nets_indices(pts)
         if self.occ_map is not None:
@@ -184,18 +175,18 @@ class DynamicMultiNerf(MultiNerf):
         net_indices, order = torch.sort(net_indices)
         counts = torch.bincount(net_indices[valid:], minlength=self.num_nets)
         sorted_pts, sorted_dirs = pts[order], dirs[order]
-        self.clock.click('sort + filter dirs')
+        # self.clock.click('sort + filter dirs')
 
         # Perform global-to-local mapping
-        NerfLib.global_to_local(
+        nerf_lib.global_to_local(
             sorted_pts[valid:], self.mid_pts, self.voxel_size, counts)
-        self.clock.click('global to local')
+        # self.clock.click('global to local')
 
         sorted_rgbs = torch.zeros((len(pts), 3)).to(sorted_pts)
         sorted_densities = torch.zeros((len(pts), 1)).to(sorted_pts)
         sorted_rgbs[valid:], sorted_densities[valid:] = \
             super().forward(sorted_pts[valid:], sorted_dirs[valid:], counts)
-        self.clock.click('evaluate')
+        # self.clock.click('evaluate')
 
         rgbs = torch.empty_like(sorted_rgbs)
         densities = torch.empty_like(sorted_densities)
