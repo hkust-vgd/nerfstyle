@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from torchtyping import TensorType
 
+from nerf_lib import nerf_lib
 import utils
 
 
@@ -72,11 +73,20 @@ class DynamicMultiLinear(MultiLinear):
     def __init__(self, *multilinear_args) -> None:
         super().__init__(*multilinear_args)
 
+        self.group_limits = [2048, 1024]
+        self.aux_index = nerf_lib.init_multimatmul_aux_data(
+            self.num_networks, self.out_features,
+            self.in_features, self.group_limits)
+
     def forward(
         self,
         x: TensorType['batch_size', 'in_channels'],
         counts: TensorType['num_networks']
     ) -> TensorType['batch_size', 'out_channels']:
+        nerf_lib.multimatmul(
+            self.weight, self.bias, x, counts.cpu(),
+            self.group_limits, self.aux_index)
+
         weight_transpose = self.weight.permute(0, 2, 1)
         result = torch.empty((len(x), self.out_features)).to(self.weight)
         ptr = 0

@@ -1,4 +1,5 @@
 #include <torch/extension.h>
+#include <ATen/cuda/CUDABlas.h>
 
 using namespace torch::indexing;
 
@@ -34,8 +35,10 @@ void global_to_local_cuda(
   auto offsets_tensor = torch::zeros_like(cumsum_tensor);
   offsets_tensor.index_put_({Slice(1, num_nets)}, cumsum_tensor.index({Slice(0, num_nets - 1)}));
 
+  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+
   AT_DISPATCH_FLOATING_TYPES(points_tensor.type(), "global_to_local", ([&] {
-    global_to_local_cuda_kernel<scalar_t><<<num_nets, dim3(threads, 3)>>>(
+    global_to_local_cuda_kernel<scalar_t><<<num_nets, dim3(threads, 3), 0, stream>>>(
       points_tensor.packed_accessor<scalar_t, 2, torch::RestrictPtrTraits, size_t>(),
       mid_points_tensor.packed_accessor<scalar_t, 2, torch::RestrictPtrTraits, size_t>(),
       voxel_size_tensor.data_ptr<float>(),

@@ -29,6 +29,8 @@ class Trainer:
 
         self.device = torch.device('cuda:0')
         nerf_lib.init(self.net_cfg, self.train_cfg, self.device)
+        nerf_lib.init_stream_pool(16)
+        nerf_lib.init_magma()
 
         self.writer = None
         if self.train_cfg.intervals.log > 0:
@@ -61,3 +63,8 @@ class Trainer:
     def run(self):
         while self.iter_ctr < self.train_cfg.num_iterations:
             self.run_iter()
+
+    def close(self):
+        nerf_lib.destroy_stream_pool()
+        nerf_lib.deinit_multimatmul_aux_data()
+        self.logger.info('Closed')

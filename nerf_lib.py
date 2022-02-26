@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from einops import reduce
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from torch.utils.cpp_extension import load
 from torchtyping import TensorType
 
@@ -13,26 +13,37 @@ import utils
 
 
 class NerfLib:
+    EXT_NAME = 'nerf_cuda_lib'
+    EXT_MAIN_CPP_FN = 'nerf_lib.cpp'
+
     def __init__(self, net_cfg: NetworkConfig, train_cfg: TrainConfig, device):
         self.net_cfg = net_cfg
         self.train_cfg = train_cfg
         self.device = device
 
         # Load cuda
-        EXT_NAME = 'nerf_cuda_lib'
-        EXT_MAIN_CPP_FN = 'nerf_lib.cpp'
+        cuda_lib = self._load_cuda_ext()
+        for method in dir(cuda_lib):
+            if method[:2] == '__':
+                continue
+            setattr(self, method, getattr(cuda_lib, method))
 
+    @staticmethod
+    def _load_cuda_ext():
         cuda_dir = Path('./cuda')
         cuda_paths = [p for p in cuda_dir.iterdir() if p.suffix == '.cu']
-        cuda_modules = [p.stem for p in cuda_paths]
-        cuda_load_paths = [str(cuda_dir / EXT_MAIN_CPP_FN)] + \
+        cuda_load_paths = [str(cuda_dir / NerfLib.EXT_MAIN_CPP_FN)] + \
             [str(p) for p in cuda_paths]
 
-        cuda_lib = load(
-            EXT_NAME, cuda_load_paths, verbose=True, extra_cflags=['-w'])
-        for module in cuda_modules:
-            assert module in dir(cuda_lib)
-            setattr(self, module, getattr(cuda_lib, module))
+        include_dirs = ['/usr/local/magma/include']
+        cuda_ext = load(
+            NerfLib.EXT_NAME,
+            cuda_load_paths,
+            extra_include_paths=include_dirs,
+            extra_cflags=['-w', '-D_GLIBCXX_USE_CXX11_ABI=0'],
+            verbose=True
+        )
+        return cuda_ext
 
     def generate_rays(
         self,
@@ -168,6 +179,27 @@ class NerfLib:
             ptr += bsize
         local_points /= (voxel_size / 2)
         return local_points
+
+    # Stub CUDA methods
+    @staticmethod
+    def init_stream_pool(_):
+        pass
+
+    @staticmethod
+    def destroy_stream_pool():
+        pass
+
+    @staticmethod
+    def init_magma():
+        pass
+
+    @staticmethod
+    def init_multimatmul_aux_data(*_):
+        return None
+
+    @staticmethod
+    def deinit_multimatmul_aux_data():
+        pass
 
 
 class NerfLibManager:

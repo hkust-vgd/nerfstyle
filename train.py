@@ -14,7 +14,13 @@ def train():
 
     args, nargs = parser.parse_known_args()
     trainer = trainers.get_trainer(args, nargs)
-    trainer.run()
+
+    try:
+        trainer.run()
+    except KeyboardInterrupt:
+        trainer.logger.info('Training interrupted')
+    finally:
+        trainer.close()
 
 
 if __name__ == '__main__':
