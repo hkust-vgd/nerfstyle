@@ -33,7 +33,7 @@ void global_to_local(
   global_to_local_cuda(points_tensor, mid_points_tensor, voxel_size_tensor, bsizes_tensor);
 }
 
-void multimatmul(
+torch::Tensor multimatmul(
     const torch::Tensor& weights_tensor,
     const torch::Tensor& biases_tensor,
     const torch::Tensor& inputs_tensor,
@@ -45,7 +45,7 @@ void multimatmul(
   CHECK_CUDA_INPUT(inputs_tensor);
   CHECK_CPU_INPUT(bsizes_tensor);
 
-  multimatmul_cuda(weights_tensor, biases_tensor, inputs_tensor, bsizes_tensor, group_limits, aux_index);
+  return multimatmul_cuda(weights_tensor, biases_tensor, inputs_tensor, bsizes_tensor, group_limits, aux_index);
 }
 
 void init_stream_pool(int64_t num_streams) {

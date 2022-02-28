@@ -41,6 +41,7 @@ class NerfLib:
             cuda_load_paths,
             extra_include_paths=include_dirs,
             extra_cflags=['-w', '-D_GLIBCXX_USE_CXX11_ABI=0'],
+            extra_ldflags=['/usr/local/magma/lib/libmagma.a'],
             verbose=True
         )
         return cuda_ext
