@@ -20,6 +20,42 @@ def standard_uniform_(tensor):
     nn.init.uniform_(tensor, -bound, bound)
 
 
+class MultiAddmm(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, weights, biases, inputs, bsizes, aux_index):
+        ctx.save_for_backward(weights, biases, inputs, bsizes)
+        ctx.aux_index = aux_index
+
+        return nerf_lib.multimatmul_forward(
+            weights, biases, inputs, bsizes.cpu(), aux_index)
+
+    @staticmethod
+    def backward(ctx, grad_outputs):
+        weights, biases, inputs, bsizes = ctx.saved_tensors
+        grad_outputs = grad_outputs.contiguous()
+        print(inputs.is_contiguous(), weights.is_contiguous(), biases.is_contiguous(), bsizes.is_contiguous())
+
+        grad_inputs = nerf_lib.multimatmul_backward_inputs(
+            grad_outputs, weights, bsizes.cpu(), ctx.aux_index)
+        grad_weights = nerf_lib.multimatmul_backward_weights(
+            grad_outputs, inputs, bsizes.cpu(), ctx.aux_index)
+        grad_biases = nerf_lib.multimatmul_backward_biases(
+            grad_outputs, bsizes.cpu(), ctx.aux_index)
+
+        print(grad_inputs.shape, inputs.shape)
+        print(grad_weights.shape, weights.shape)
+        print(grad_biases.shape, biases.shape)
+
+        # return super().backward(ctx, *grad_outputs)
+
+        # raise NotImplementedError('so far so good')
+        # print(grad_weights)
+        # print(grad_biases)
+        # print(grad_inputs)
+
+        return grad_weights, grad_biases, grad_inputs, None, None
+
+
 class MultiLinear(nn.Module):
     rng_cm = nullcontext()
 
@@ -92,12 +128,11 @@ class DynamicMultiLinear(MultiLinear):
                 self.bias[idx, 0], x[ptr:ptr+count], weight_transpose[idx])
             ptr += count
 
-        cuda_result = nerf_lib.multimatmul(
-            self.weight, self.bias, x, counts.cpu(),
-            self.group_limits, self.aux_index)
+        cuda_result = MultiAddmm.apply(
+            self.weight, self.bias, x, counts.cpu(), self.aux_index)
 
         errors = torch.abs(cuda_result - result)
-        print('Average err: {:f}'.format(torch.mean(errors).item()))
-        print('Max err: {:f}'.format(torch.max(errors).item()))
+        print('Average error: {:f}, Max err: {:f}'.format(
+            torch.mean(errors).item(), torch.max(errors).item()))
 
-        return result
+        return cuda_result

@@ -33,19 +33,52 @@ void global_to_local(
   global_to_local_cuda(points_tensor, mid_points_tensor, voxel_size_tensor, bsizes_tensor);
 }
 
-torch::Tensor multimatmul(
+torch::Tensor multimatmul_forward(
     const torch::Tensor& weights_tensor,
     const torch::Tensor& biases_tensor,
     const torch::Tensor& inputs_tensor,
     const torch::Tensor& bsizes_tensor,
-    std::vector<int> group_limits,
     int aux_index) {
   CHECK_CUDA_INPUT(weights_tensor);
   CHECK_CUDA_INPUT(biases_tensor);
   CHECK_CUDA_INPUT(inputs_tensor);
   CHECK_CPU_INPUT(bsizes_tensor);
 
-  return multimatmul_cuda(weights_tensor, biases_tensor, inputs_tensor, bsizes_tensor, group_limits, aux_index);
+  return multimatmul_cuda_forward(weights_tensor, biases_tensor, inputs_tensor, bsizes_tensor, aux_index);
+}
+
+torch::Tensor multimatmul_backward_inputs(
+    const torch::Tensor& grads_tensor,
+    const torch::Tensor& weights_tensor,
+    const torch::Tensor& bsizes_tensor,
+    int aux_index) {
+  CHECK_CUDA_INPUT(grads_tensor);
+  CHECK_CUDA_INPUT(weights_tensor);
+  CHECK_CPU_INPUT(bsizes_tensor);
+
+  return multimatmul_cuda_backward_inputs(grads_tensor, weights_tensor, bsizes_tensor, aux_index);
+}
+
+torch::Tensor multimatmul_backward_weights(
+    const torch::Tensor& grads_tensor,
+    const torch::Tensor& inputs_tensor,
+    const torch::Tensor& bsizes_tensor,
+    int aux_index) {
+  CHECK_CUDA_INPUT(grads_tensor);
+  CHECK_CUDA_INPUT(inputs_tensor);
+  CHECK_CPU_INPUT(bsizes_tensor);
+
+  return multimatmul_cuda_backward_weights(grads_tensor, inputs_tensor, bsizes_tensor, aux_index);
+}
+
+torch::Tensor multimatmul_backward_biases(
+    const torch::Tensor& grads_tensor,
+    const torch::Tensor& bsizes_tensor,
+    int aux_index) {
+  CHECK_CUDA_INPUT(grads_tensor);
+  CHECK_CPU_INPUT(bsizes_tensor);
+
+  return multimatmul_cuda_backward_biases(grads_tensor, bsizes_tensor, aux_index);
 }
 
 void init_stream_pool(int64_t num_streams) {
@@ -67,5 +100,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
   // NeRF library functions
   m.def("global_to_local", &global_to_local, "Map global to local coordinates");
-  m.def("multimatmul", &multimatmul, "Perform multiple varible-sized matrix multiplication in parallel.");
+  m.def("multimatmul_forward", &multimatmul_forward, "Perform multiple varible-sized matrix multiplication in parallel.");
+  m.def("multimatmul_backward_inputs", &multimatmul_backward_inputs, "");
+  m.def("multimatmul_backward_weights", &multimatmul_backward_weights, "");
+  m.def("multimatmul_backward_biases", &multimatmul_backward_biases, "");
 }
