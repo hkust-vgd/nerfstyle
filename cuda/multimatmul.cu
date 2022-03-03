@@ -123,7 +123,7 @@ int init_multimatmul_aux_data(
 
 void deinit_multimatmul_aux_data() {
     for (int i = 0; i < aux_data_counter; ++i) {
-        multimatmul_aux_data aux_data = aux_data_map[i];
+        multimatmul_aux_data& aux_data = aux_data_map[i];
     
         magma_free_cpu(aux_data.nets_per_group);
         
@@ -180,11 +180,19 @@ __global__ void expand_bias_kernel(
     }
 }
 
-void _set_dimensions(std::vector<magma_int_t*>& ref, magma_int_t** max_ref, const multimatmul_aux_data& aux_data, dim d) {
+void _set_dims(std::vector<magma_int_t*>& ref, const multimatmul_aux_data& aux_data, dim d) {
     switch(d) {
-        case in_dim: ref = aux_data.d_in; *max_ref = aux_data.max_in; break;
-        case out_dim: ref = aux_data.d_out; *max_ref = aux_data.max_out; break;
-        case bsize_dim: ref = aux_data.d_bsize; *max_ref = aux_data.max_bsize; break;
+        case in_dim: ref = aux_data.d_in; break;
+        case out_dim: ref = aux_data.d_out; break;
+        case bsize_dim: ref = aux_data.d_bsize; break;
+    }
+}
+
+void _set_max_dim(magma_int_t** max_ref, const multimatmul_aux_data& aux_data, dim d) {
+    switch(d) {
+        case in_dim: *max_ref = aux_data.max_in; break;
+        case out_dim: *max_ref = aux_data.max_out; break;
+        case bsize_dim: *max_ref = aux_data.max_bsize; break;
     }
 }
 
@@ -211,7 +219,7 @@ void _multimatmul_cuda(
     bool use_bias,
     int aux_index
 ) {
-    multimatmul_aux_data aux_data = aux_data_map[aux_index];
+    multimatmul_aux_data& aux_data = aux_data_map[aux_index];
     int num_nets = aux_data.num_nets;
     int out_channels = aux_data.out_channels;
     auto bsizes_tensor_a = bsizes_tensor.accessor<int64_t, 1>();
@@ -220,9 +228,12 @@ void _multimatmul_cuda(
     magma_int_t* max_m = nullptr;
     magma_int_t* max_n = nullptr;
     magma_int_t* max_k = nullptr;
-    _set_dimensions(d_M, &max_m, aux_data, m_dim);
-    _set_dimensions(d_N, &max_n, aux_data, n_dim);
-    _set_dimensions(d_K, &max_k, aux_data, k_dim);
+    _set_dims(d_M, aux_data, m_dim);
+    _set_dims(d_N, aux_data, n_dim);
+    _set_dims(d_K, aux_data, k_dim);
+    _set_max_dim(&max_m, aux_data, m_dim);
+    _set_max_dim(&max_n, aux_data, n_dim);
+    _set_max_dim(&max_k, aux_data, k_dim);
 
     magma_trans_t transA = transpose_A ? MagmaTrans : MagmaNoTrans;
     magma_trans_t transB = transpose_B ? MagmaTrans : MagmaNoTrans;
@@ -285,13 +296,12 @@ void _multimatreduce_cuda(
     dim n_dim,
     int aux_index
 ) {
-    multimatmul_aux_data aux_data = aux_data_map[aux_index];
+    multimatmul_aux_data& aux_data = aux_data_map[aux_index];
     int num_nets = aux_data.num_nets;
 
     std::vector<magma_int_t*> d_M, d_N;
-    magma_int_t* tmp = nullptr;
-    _set_dimensions(d_M, &tmp, aux_data, m_dim);
-    _set_dimensions(d_N, &tmp, aux_data, n_dim);
+    _set_dims(d_M, aux_data, m_dim);
+    _set_dims(d_N, aux_data, n_dim);
     
     magma_setvector(num_nets + 1, sizeof(magma_int_t), aux_data.h_bsize[0], 1, aux_data.d_bsize[0], 1, magma_queue);
     magma_setvector(num_nets, sizeof(float*), aux_data.h_A_array[0], 1, aux_data.d_A_array[0], 1, magma_queue);
@@ -317,7 +327,7 @@ torch::Tensor multimatmul_cuda_forward(
     const torch::Tensor& bsizes_tensor,
     int aux_index
 ) {
-    multimatmul_aux_data aux_data = aux_data_map[aux_index];
+    multimatmul_aux_data& aux_data = aux_data_map[aux_index];
     int num_pts = inputs_tensor.size(0);
 
     torch::Tensor results_tensor = torch::zeros({num_pts, aux_data.out_channels}, inputs_tensor.options());
@@ -334,11 +344,12 @@ torch::Tensor multimatmul_cuda_forward(
     
     int bsize;
     for (int net_idx = 0, pt_idx = 0; net_idx < aux_data.num_nets; ++net_idx, pt_idx += bsize) {
-        bsize = bsizes_tensor_a[net_idx];        
+        bsize = bsizes_tensor_a[net_idx];
+        int group = _get_group_id(bsize, aux_data);
+        int group_net_idx = aux_data.nets_per_group[group];
+        aux_data.h_bsize[group][group_net_idx] = bsize;
+        
         if (bsize > 0) {
-            int group = _get_group_id(bsize, aux_data);
-            int group_net_idx = aux_data.nets_per_group[group];
-            aux_data.h_bsize[group][group_net_idx] = bsize;
             aux_data.h_A_array[group][group_net_idx] = weights_tensor_a[net_idx].data();
             aux_data.h_B_array[group][group_net_idx] = inputs_tensor_a[pt_idx].data();
             aux_data.h_C_array[group][group_net_idx] = results_tensor_a[pt_idx].data();
@@ -361,7 +372,7 @@ torch::Tensor multimatmul_cuda_backward_inputs(
     const torch::Tensor& bsizes_tensor,
     int aux_index
 ) {
-    multimatmul_aux_data aux_data = aux_data_map[aux_index];
+    multimatmul_aux_data& aux_data = aux_data_map[aux_index];
     int num_pts = grads_tensor.size(0);
 
     torch::Tensor results_tensor = torch::zeros({num_pts, aux_data.in_channels}, grads_tensor.options());
@@ -378,11 +389,12 @@ torch::Tensor multimatmul_cuda_backward_inputs(
     
     int bsize;
     for (int net_idx = 0, pt_idx = 0; net_idx < aux_data.num_nets; ++net_idx, pt_idx += bsize) {
-        bsize = bsizes_tensor_a[net_idx];        
+        bsize = bsizes_tensor_a[net_idx];
+        int group = _get_group_id(bsize, aux_data);
+        int group_net_idx = aux_data.nets_per_group[group];
+        aux_data.h_bsize[group][group_net_idx] = bsize;
+
         if (bsize > 0) {
-            int group = _get_group_id(bsize, aux_data);
-            int group_net_idx = aux_data.nets_per_group[group];
-            aux_data.h_bsize[group][group_net_idx] = bsize;
             aux_data.h_A_array[group][group_net_idx] = weights_tensor_a[net_idx].data();
             aux_data.h_B_array[group][group_net_idx] = grads_tensor_a[pt_idx].data();
             aux_data.h_C_array[group][group_net_idx] = results_tensor_a[pt_idx].data();
@@ -405,7 +417,7 @@ torch::Tensor multimatmul_cuda_backward_weights(
     const torch::Tensor& bsizes_tensor,
     int aux_index
 ) {
-    multimatmul_aux_data aux_data = aux_data_map[aux_index];
+    multimatmul_aux_data& aux_data = aux_data_map[aux_index];
 
     torch::Tensor results_tensor = torch::zeros({aux_data.num_nets, aux_data.out_channels, aux_data.in_channels}, grads_tensor.options());
 
@@ -422,10 +434,11 @@ torch::Tensor multimatmul_cuda_backward_weights(
     int bsize;
     for (int net_idx = 0, pt_idx = 0; net_idx < aux_data.num_nets; ++net_idx, pt_idx += bsize) {
         bsize = bsizes_tensor_a[net_idx];        
+        int group = _get_group_id(bsize, aux_data);
+        int group_net_idx = aux_data.nets_per_group[group];
+        aux_data.h_bsize[group][group_net_idx] = bsize;
+
         if (bsize > 0) {
-            int group = _get_group_id(bsize, aux_data);
-            int group_net_idx = aux_data.nets_per_group[group];
-            aux_data.h_bsize[group][group_net_idx] = bsize;
             aux_data.h_A_array[group][group_net_idx] = inputs_tensor_a[pt_idx].data();
             aux_data.h_B_array[group][group_net_idx] = grads_tensor_a[pt_idx].data();
             aux_data.h_C_array[group][group_net_idx] = results_tensor_a[net_idx].data();
@@ -447,7 +460,7 @@ torch::Tensor multimatmul_cuda_backward_biases(
     const torch::Tensor& bsizes_tensor,
     int aux_index
 ) {
-    multimatmul_aux_data aux_data = aux_data_map[aux_index];
+    multimatmul_aux_data& aux_data = aux_data_map[aux_index];
     int num_pts = grads_tensor.size(0);
 
     torch::Tensor results_tensor = torch::zeros({aux_data.num_nets, 1, aux_data.out_channels}, grads_tensor.options());
@@ -460,9 +473,10 @@ torch::Tensor multimatmul_cuda_backward_biases(
 
     int bsize;
     for (int net_idx = 0, pt_idx = 0; net_idx < aux_data.num_nets; ++net_idx, pt_idx += bsize) {
-        bsize = bsizes_tensor_a[net_idx];        
+        bsize = bsizes_tensor_a[net_idx];
+        aux_data.h_bsize[0][net_idx] = bsize;
+
         if (bsize > 0) {
-            aux_data.h_bsize[0][net_idx] = bsize;
             aux_data.h_A_array[0][net_idx] = grads_tensor_a[pt_idx].data();
             aux_data.h_x_array[net_idx] = &ones_tensor_a[pt_idx];
             aux_data.h_y_array[net_idx] = results_tensor_a[net_idx].data();

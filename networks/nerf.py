@@ -32,7 +32,6 @@ class Nerf(nn.Module):
         """
 
         super(Nerf, self).__init__()
-        self.clock = utils.Clock()
         self.skip = skip
         self.activation = activation
         self.logger = utils.create_logger(__name__)
@@ -82,29 +81,23 @@ class Nerf(nn.Module):
                 return layer
             return lambda x: layer(x, *args)
 
-        self.clock.reset()
         x = self.x_embedder(pts)
         out = x
         for i, layer in enumerate(self.x_layers):
             if i in self.skip:
                 out = torch.cat([x, out], dim=-1)
             out = self.actv(bind(layer)(out))
-            self.clock.click('x_layer_{:d}'.format(i))
 
         a = bind(self.a_layer)(out)
-        self.clock.click('a_layer')
         if dirs is None:
             return a
 
         d = self.d_embedder(dirs)
         out = torch.cat([bind(self.x2d_layer)(out), d], dim=-1)
-        self.clock.click('x2d_layer')
         for layer in self.d_layers:
             out = self.actv(bind(layer)(out))
-        self.clock.click('d_layer')
 
         c = torch.sigmoid(bind(self.c_layer)(out))
-        self.clock.click('c_layer')
         return c, a
 
 

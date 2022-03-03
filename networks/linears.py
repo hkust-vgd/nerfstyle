@@ -23,17 +23,27 @@ def standard_uniform_(tensor):
 class MultiAddmm(torch.autograd.Function):
     @staticmethod
     def forward(ctx, weights, biases, inputs, bsizes, aux_index):
-        ctx.save_for_backward(weights, biases, inputs, bsizes)
+        ctx.save_for_backward(weights, inputs, bsizes)
         ctx.aux_index = aux_index
 
-        return nerf_lib.multimatmul_forward(
+        # Naive method
+        # weight_transpose = weights.permute(0, 2, 1)
+        # slow_result = torch.empty((len(inputs), weights.shape[1])).cuda()
+        # ptr = 0
+        # for idx, bsize in enumerate(bsizes):
+        #     # (O, ) + (B, I) @ (I, O) = (B, O)
+        #     slow_result[ptr:ptr+bsize] = torch.addmm(
+        #         biases[idx, 0], inputs[ptr:ptr+bsize], weight_transpose[idx])
+        #     ptr += bsize
+
+        result = nerf_lib.multimatmul_forward(
             weights, biases, inputs, bsizes.cpu(), aux_index)
+        return result
 
     @staticmethod
     def backward(ctx, grad_outputs):
-        weights, biases, inputs, bsizes = ctx.saved_tensors
+        weights, inputs, bsizes = ctx.saved_tensors
         grad_outputs = grad_outputs.contiguous()
-        print(inputs.is_contiguous(), weights.is_contiguous(), biases.is_contiguous(), bsizes.is_contiguous())
 
         grad_inputs = nerf_lib.multimatmul_backward_inputs(
             grad_outputs, weights, bsizes.cpu(), ctx.aux_index)
@@ -41,17 +51,6 @@ class MultiAddmm(torch.autograd.Function):
             grad_outputs, inputs, bsizes.cpu(), ctx.aux_index)
         grad_biases = nerf_lib.multimatmul_backward_biases(
             grad_outputs, bsizes.cpu(), ctx.aux_index)
-
-        print(grad_inputs.shape, inputs.shape)
-        print(grad_weights.shape, weights.shape)
-        print(grad_biases.shape, biases.shape)
-
-        # return super().backward(ctx, *grad_outputs)
-
-        # raise NotImplementedError('so far so good')
-        # print(grad_weights)
-        # print(grad_biases)
-        # print(grad_inputs)
 
         return grad_weights, grad_biases, grad_inputs, None, None
 
@@ -119,20 +118,8 @@ class DynamicMultiLinear(MultiLinear):
         x: TensorType['batch_size', 'in_channels'],
         counts: TensorType['num_networks']
     ) -> TensorType['batch_size', 'out_channels']:
-        weight_transpose = self.weight.permute(0, 2, 1)
-        result = torch.empty((len(x), self.out_features)).cuda()
-        ptr = 0
-        for idx, count in enumerate(counts):
-            # (O, ) + (B, I) @ (I, O) = (B, O)
-            result[ptr:ptr+count] = torch.addmm(
-                self.bias[idx, 0], x[ptr:ptr+count], weight_transpose[idx])
-            ptr += count
 
         cuda_result = MultiAddmm.apply(
             self.weight, self.bias, x, counts.cpu(), self.aux_index)
-
-        errors = torch.abs(cuda_result - result)
-        print('Average error: {:f}, Max err: {:f}'.format(
-            torch.mean(errors).item(), torch.max(errors).item()))
 
         return cuda_result

@@ -52,7 +52,11 @@ class OccupancyGrid(nn.Module):
         self,
         pts: TensorType['batch_size', 3]
     ) -> TensorType['batch_size']:
-        invalid = [(pts >= self.global_max_pt), (pts < self.global_min_pt)]
+        epsilon = 1e-5
+        invalid = [
+            (pts >= self.global_max_pt - epsilon),
+            (pts < self.global_min_pt + epsilon)
+        ]
         invalid = torch.any(torch.cat(invalid, dim=-1), dim=-1)  # (N, )
         indices = (pts - self.global_min_pt) / self.voxel_size
         indices = torch.sum(indices.to(torch.long) * self.basis, dim=-1)
