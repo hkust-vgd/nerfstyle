@@ -46,6 +46,11 @@ class End2EndTrainer(Trainer):
             self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
+        self.test_set = NSVFDataset(self.dataset_cfg.root_path, 'test')
+        self.test_loader = DataLoader(
+            self.test_set, batch_size=None, shuffle=False)
+        self.logger.info('Loaded ' + str(self.test_set))
+
     @staticmethod
     def calc_loss(rendered, target):
         mse_loss = torch.mean((rendered - target) ** 2)
@@ -107,6 +112,32 @@ class End2EndTrainer(Trainer):
         torch.save(ckpt_dict, ckpt_path)
         self.logger.info('Saved checkpoint at {}'.format(ckpt_path))
 
+    @torch.no_grad()
+    def test_networks(self):
+        for img, pose in self.test_loader:
+            img, pose = img.to(self.device), pose.to(self.device)
+
+            _, rays = nerf_lib.generate_rays(img, pose, self.test_set)
+            pts, dists = nerf_lib.sample_points(rays)
+            dirs = rays.viewdirs()
+
+            pts_flat = pts.reshape(-1, 3)
+            dirs_flat = torch.repeat_interleave(
+                dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
+
+            rgbs = torch.empty((len(pts_flat), 3)).to(self.device)
+            densities = torch.empty((len(pts_flat), 1)).to(self.device)
+            utils.batch_exec(self.model, rgbs, densities,
+                             bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
+            rgbs = rgbs.reshape(*dists.shape, 3)
+            densities = densities.reshape(dists.shape)
+
+            bg_color = torch.tensor(self.train_set.bg_color).to(self.device)
+            rgb_map = nerf_lib.integrate_points(dists, rgbs, densities, bg_color)
+            print(rgb_map.shape)
+
+        raise NotImplementedError
+
     def run_iter(self):
         self.time0 = time.time()
         img, pose = next(self.train_loader)
@@ -157,6 +188,8 @@ class End2EndTrainer(Trainer):
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
             self.print_status(loss, psnr)
+        # if self.check_interval(self.train_cfg.intervals.test):
+        self.test_networks()
         if self.check_interval(self.train_cfg.intervals.log):
             self.log_status(loss, psnr, new_lr)
         if self.check_interval(self.train_cfg.intervals.ckpt):
