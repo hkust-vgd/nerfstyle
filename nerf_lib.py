@@ -51,7 +51,8 @@ class NerfLib:
         img: TensorType['H', 'W', 3],
         pose: TensorType[4, 4],
         dataset: Dataset,
-        precrop: Optional[float] = None
+        precrop: Optional[float] = None,
+        bsize: Optional[int] = None
     ) -> Tuple[TensorType['K', 3], RayBatch]:
         """Generate a batch of rays.
 
@@ -59,7 +60,9 @@ class NerfLib:
             img (TensorType['h', 'w', 3]): Image tensor.
             pose (TensorType[4, 4]): Camera pose tensor.
             dataset (Dataset): Dataset object.
-            precrop (Optional[float]): Precrop factor; None if not used.
+            precrop (Optional[float]): Precrop factor; None if not specified.
+            bsize (Optional[int]): Size of ray batch. All rays are used if
+            not specified.
 
         Returns:
             target (TensorType['K', 3]): Pixel values corresponding to rays.
@@ -91,13 +94,17 @@ class NerfLib:
         # Transform by camera pose (camera to world coords)
         rays_d = torch.einsum('ij, hwj -> hwi', pose_r, dirs)
 
-        indices_1d = np.random.choice(
-            np.arange(w * h), self.train_cfg.num_rays_per_batch, replace=False)
-        indices_2d = (indices_1d // h, indices_1d % h)
-        coords = (indices_2d[0] + dy, indices_2d[1] + dx)
-        rays_d = rays_d[indices_2d]
+        if bsize is None:
+            target = img.reshape((-1, 3))
+            rays_d = rays_d.reshape((-1, 3))
+        else:
+            indices_1d = np.random.choice(
+                np.arange(w * h), bsize, replace=False)
+            indices_2d = (indices_1d // h, indices_1d % h)
+            coords = (indices_2d[0] + dy, indices_2d[1] + dx)
+            target = img[coords]
+            rays_d = rays_d[indices_2d]
 
-        target = img[coords]
         rays = RayBatch(pose_t, rays_d, near, far)
         return target, rays
 

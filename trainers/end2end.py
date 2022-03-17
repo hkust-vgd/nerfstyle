@@ -114,9 +114,13 @@ class End2EndTrainer(Trainer):
 
     @torch.no_grad()
     def test_networks(self):
-        for img, pose in self.test_loader:
+        img_dir = self.log_dir / 'epoch_{:d}'.format(self.iter_ctr)
+        img_dir.mkdir()
+
+        for i, (img, pose) in enumerate(self.test_loader):
             img, pose = img.to(self.device), pose.to(self.device)
 
+            # TODO: Factorize rendering code below
             _, rays = nerf_lib.generate_rays(img, pose, self.test_set)
             pts, dists = nerf_lib.sample_points(rays)
             dirs = rays.viewdirs()
@@ -133,8 +137,11 @@ class End2EndTrainer(Trainer):
             densities = densities.reshape(dists.shape)
 
             bg_color = torch.tensor(self.train_set.bg_color).to(self.device)
-            rgb_map = nerf_lib.integrate_points(dists, rgbs, densities, bg_color)
-            print(rgb_map.shape)
+            rgb_map = nerf_lib.integrate_points(
+                dists, rgbs, densities, bg_color)
+
+            rgb_output = rgb_map.reshape(img.shape)
+            save_path = img_dir / 'frame_{:d}.png'.format(i)
 
         raise NotImplementedError
 
@@ -148,7 +155,8 @@ class End2EndTrainer(Trainer):
         if self.iter_ctr < self.train_cfg.precrop_iterations:
             precrop = self.train_cfg.precrop_fraction
         target, rays = nerf_lib.generate_rays(
-            img, pose, self.train_set, precrop=precrop)
+            img, pose, self.train_set, precrop=precrop,
+            bsize=self.train_cfg.num_rays_per_batch)
 
         # Render rays
         pts, dists = nerf_lib.sample_points(rays)
