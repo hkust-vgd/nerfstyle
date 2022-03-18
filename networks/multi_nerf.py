@@ -164,11 +164,20 @@ class DynamicMultiNerf(MultiNerf):
 
     def forward(self, pts, dirs=None, *_):
         assert self._ready
+        from time import time
+        t0 = time()
 
         net_indices, valid = self.map_to_nets_indices(pts)
         if self.occ_map is not None:
             net_indices = torch.where(self.occ_map(pts), net_indices, -1)
             valid = torch.sum(net_indices < 0).item()
+        t1 = time()
+
+        if (valid == len(pts)):
+            rgbs = torch.zeros((len(pts), 3)).to(pts)
+            densities = torch.zeros((len(pts), 1)).to(pts)
+            print(len(pts), len(pts) - valid, t1 - t0, time() - t1)
+            return rgbs, densities
 
         net_indices, order = torch.sort(net_indices)
         counts = torch.bincount(net_indices[valid:], minlength=self.num_nets)
@@ -187,4 +196,5 @@ class DynamicMultiNerf(MultiNerf):
         densities = torch.empty_like(sorted_densities)
         rgbs[order], densities[order] = sorted_rgbs, sorted_densities
 
+        print(len(pts), len(pts) - valid, t1 - t0, time() - t1)
         return rgbs, densities

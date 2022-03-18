@@ -2,6 +2,8 @@ import time
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+import torchvision
+import einops
 
 from data.nsvf_dataset import NSVFDataset
 from networks.nerf import SingleNerf
@@ -114,16 +116,20 @@ class End2EndTrainer(Trainer):
 
     @torch.no_grad()
     def test_networks(self):
-        img_dir = self.log_dir / 'epoch_{:d}'.format(self.iter_ctr)
+        img_dir = self.log_dir / 'epoch_{:0{width}d}'.format(
+            self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         img_dir.mkdir()
+        clock = utils.Clock()
 
         for i, (img, pose) in enumerate(self.test_loader):
             img, pose = img.to(self.device), pose.to(self.device)
+            clock.reset()
 
             # TODO: Factorize rendering code below
             _, rays = nerf_lib.generate_rays(img, pose, self.test_set)
             pts, dists = nerf_lib.sample_points(rays)
             dirs = rays.viewdirs()
+            clock.click('Sample points')
 
             pts_flat = pts.reshape(-1, 3)
             dirs_flat = torch.repeat_interleave(
@@ -131,17 +137,22 @@ class End2EndTrainer(Trainer):
 
             rgbs = torch.empty((len(pts_flat), 3)).to(self.device)
             densities = torch.empty((len(pts_flat), 1)).to(self.device)
+            clock.click('Flatten')
             utils.batch_exec(self.model, rgbs, densities,
                              bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
             rgbs = rgbs.reshape(*dists.shape, 3)
             densities = densities.reshape(dists.shape)
+            clock.click('Eval model')
 
             bg_color = torch.tensor(self.train_set.bg_color).to(self.device)
             rgb_map = nerf_lib.integrate_points(
                 dists, rgbs, densities, bg_color)
+            clock.click('Integrate output')
 
-            rgb_output = rgb_map.reshape(img.shape)
-            save_path = img_dir / 'frame_{:d}.png'.format(i)
+            rgb_output = einops.rearrange(
+                rgb_map.reshape(img.shape), 'h w c -> c h w')
+            save_path = img_dir / 'frame_{:03d}.png'.format(i)
+            torchvision.utils.save_image(rgb_output, save_path)
 
         raise NotImplementedError
 
