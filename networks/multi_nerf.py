@@ -176,7 +176,6 @@ class DynamicMultiNerf(MultiNerf):
         if (valid == len(pts)):
             rgbs = torch.zeros((len(pts), 3)).to(pts)
             densities = torch.zeros((len(pts), 1)).to(pts)
-            print(len(pts), len(pts) - valid, t1 - t0, time() - t1)
             return rgbs, densities
 
         net_indices, order = torch.sort(net_indices)
@@ -195,6 +194,5 @@ class DynamicMultiNerf(MultiNerf):
         rgbs = torch.empty_like(sorted_rgbs)
         densities = torch.empty_like(sorted_densities)
         rgbs[order], densities[order] = sorted_rgbs, sorted_densities
-
-        print(len(pts), len(pts) - valid, t1 - t0, time() - t1)
+        
         return rgbs, densities

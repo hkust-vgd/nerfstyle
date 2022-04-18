@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 import torchvision
 import einops
+from tqdm import tqdm
 
 from data.nsvf_dataset import NSVFDataset
 from networks.nerf import SingleNerf
@@ -48,7 +49,7 @@ class End2EndTrainer(Trainer):
             self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = NSVFDataset(self.dataset_cfg.root_path, 'test')
+        self.test_set = NSVFDataset(self.dataset_cfg.root_path, 'test', factor=4)
         self.test_loader = DataLoader(
             self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
@@ -121,12 +122,13 @@ class End2EndTrainer(Trainer):
         img_dir.mkdir()
         clock = utils.Clock()
 
-        for i, (img, pose) in enumerate(self.test_loader):
+        for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             img, pose = img.to(self.device), pose.to(self.device)
             clock.reset()
 
             # TODO: Factorize rendering code below
             _, rays = nerf_lib.generate_rays(img, pose, self.test_set)
+            clock.click('Generate rays')
             pts, dists = nerf_lib.sample_points(rays)
             dirs = rays.viewdirs()
             clock.click('Sample points')
@@ -135,9 +137,8 @@ class End2EndTrainer(Trainer):
             dirs_flat = torch.repeat_interleave(
                 dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
 
-            rgbs = torch.empty((len(pts_flat), 3)).to(self.device)
-            densities = torch.empty((len(pts_flat), 1)).to(self.device)
-            clock.click('Flatten')
+            rgbs = torch.empty((len(pts_flat), 3), device=self.device)
+            densities = torch.empty((len(pts_flat), 1), device=self.device)
             utils.batch_exec(self.model, rgbs, densities,
                              bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
             rgbs = rgbs.reshape(*dists.shape, 3)
@@ -153,8 +154,8 @@ class End2EndTrainer(Trainer):
                 rgb_map.reshape(img.shape), 'h w c -> c h w')
             save_path = img_dir / 'frame_{:03d}.png'.format(i)
             torchvision.utils.save_image(rgb_output, save_path)
-
-        raise NotImplementedError
+        
+        clock.print_stats()
 
     def run_iter(self):
         self.time0 = time.time()
@@ -207,8 +208,8 @@ class End2EndTrainer(Trainer):
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
             self.print_status(loss, psnr)
-        # if self.check_interval(self.train_cfg.intervals.test):
-        self.test_networks()
+        if self.check_interval(self.train_cfg.intervals.test):
+            self.test_networks()
         if self.check_interval(self.train_cfg.intervals.log):
             self.log_status(loss, psnr, new_lr)
         if self.check_interval(self.train_cfg.intervals.ckpt):

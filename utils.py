@@ -2,6 +2,7 @@ from collections import namedtuple
 import functools
 import logging
 import sys
+from tabulate import tabulate
 from time import time
 import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -194,9 +195,16 @@ def to_device(old_dict: Dict[str, torch.Tensor], device: str):
 
 
 class Clock:
-    def __init__(self):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
         self.prev = None
         self.reset()
+        self.record = {}
+        self.stats = {
+            'Min': np.min,
+            'Max': np.max,
+            'Avg': np.mean
+        }
 
     def reset(self):
         self.prev = time()
@@ -205,7 +213,25 @@ class Clock:
         out = time() - self.prev
         if reset:
             self.reset()
-        print('Event "{}": {:.3f}s'.format(msg, out))
+        if msg not in self.record.keys():
+            self.record[msg] = []
+
+        self.record[msg].append(out)
+        if self.verbose:
+            print('Event "{}": {:.3f}s'.format(msg, out))
+    
+    def print_stats(self):
+        stats_table = []
+        for k in self.record.keys():
+            stats_row = [k]
+            for stat_fn in self.stats.values():
+                stat = stat_fn(self.record[k])
+                stats_row.append('{:.5f} s'.format(stat))
+            stats_table.append(stats_row)
+        
+        headers = ['Event'] + list(self.stats.keys())
+        stats_table = tabulate(stats_table, headers=headers)
+        print(stats_table)
 
 
 class ExitHandler(logging.StreamHandler):

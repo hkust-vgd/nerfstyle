@@ -6,7 +6,7 @@ from utils import Intrinsics, load_matrix
 
 
 class NSVFDataset(Dataset):
-    def __init__(self, dataroot: Path, split: str = 'train'):
+    def __init__(self, dataroot: Path, split: str = 'train', factor: int = 1):
         self.root = dataroot
         rgb_dir = self.root / 'rgb'
         pose_dir = self.root / 'pose'
@@ -25,6 +25,10 @@ class NSVFDataset(Dataset):
         assert len(self.rgb_paths) == len(self.pose_paths)
         assert all([fn1.stem == fn2.stem for fn1, fn2 in
                     zip(self.rgb_paths, self.pose_paths)])
+
+        if factor > 1:
+            self.rgb_paths = self.rgb_paths[::factor]
+            self.pose_paths = self.pose_paths[::factor]
 
         def _parse_rgb(path):
             return np.array(imageio.imread(path), dtype=np.float32) / 255.0
