@@ -10,6 +10,7 @@ from data.nsvf_dataset import NSVFDataset
 from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
 from nerf_lib import nerf_lib
+from renderer import Renderer
 import utils
 from .base import Trainer
 
@@ -54,6 +55,14 @@ class End2EndTrainer(Trainer):
             self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
 
+        # Initialize renderers
+        self.train_renderer = Renderer(
+            self.model, self.train_set, self.net_cfg, self.train_cfg,
+            all_rays=False, device=self.device)
+        self.test_renderer = Renderer(
+            self.model, self.test_set, self.net_cfg, self.train_cfg,
+            all_rays=True, device=self.device)
+
     @staticmethod
     def calc_loss(rendered, target):
         mse_loss = torch.mean((rendered - target) ** 2)
@@ -82,6 +91,12 @@ class End2EndTrainer(Trainer):
                 self.logger.info('Loaded distill checkpoint \"{}\"'.format(
                     ckpt_path))
                 return
+            
+            # TODO: Remove if all old models are fixed
+            if 'x_embedder.basis' not in ckpt['model'].keys():
+                ckpt['model']['x_embedder.basis'] = 2 ** torch.range(0, 9, device=self.device)
+            if 'd_embedder.basis' not in ckpt['model'].keys():
+                ckpt['model']['d_embedder.basis'] = 2 ** torch.range(0, 3, device=self.device)
 
             self.iter_ctr = ckpt['iter']
             self.model.load_state_dict(ckpt['model'])
@@ -120,74 +135,25 @@ class End2EndTrainer(Trainer):
         img_dir = self.log_dir / 'epoch_{:0{width}d}'.format(
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         img_dir.mkdir()
-        clock = utils.Clock()
 
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             img, pose = img.to(self.device), pose.to(self.device)
-            clock.reset()
-
-            # TODO: Factorize rendering code below
-            _, rays = nerf_lib.generate_rays(img, pose, self.test_set)
-            clock.click('Generate rays')
-            pts, dists = nerf_lib.sample_points(rays)
-            dirs = rays.viewdirs()
-            clock.click('Sample points')
-
-            pts_flat = pts.reshape(-1, 3)
-            dirs_flat = torch.repeat_interleave(
-                dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
-
-            rgbs = torch.empty((len(pts_flat), 3), device=self.device)
-            densities = torch.empty((len(pts_flat), 1), device=self.device)
-            utils.batch_exec(self.model, rgbs, densities,
-                             bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
-            rgbs = rgbs.reshape(*dists.shape, 3)
-            densities = densities.reshape(dists.shape)
-            clock.click('Eval model')
-
-            bg_color = torch.tensor(self.train_set.bg_color).to(self.device)
-            rgb_map = nerf_lib.integrate_points(
-                dists, rgbs, densities, bg_color)
-            clock.click('Integrate output')
+            rgb_map, _ = self.test_renderer.render(img, pose)
 
             rgb_output = einops.rearrange(
                 rgb_map.reshape(img.shape), 'h w c -> c h w')
             save_path = img_dir / 'frame_{:03d}.png'.format(i)
             torchvision.utils.save_image(rgb_output, save_path)
-        
-        clock.print_stats()
 
     def run_iter(self):
         self.time0 = time.time()
         img, pose = next(self.train_loader)
         img, pose = img.to(self.device), pose.to(self.device)
 
-        # Generate rays
-        precrop = None
-        if self.iter_ctr < self.train_cfg.precrop_iterations:
-            precrop = self.train_cfg.precrop_fraction
-        target, rays = nerf_lib.generate_rays(
-            img, pose, self.train_set, precrop=precrop,
-            bsize=self.train_cfg.num_rays_per_batch)
-
-        # Render rays
-        pts, dists = nerf_lib.sample_points(rays)
-        dirs = rays.viewdirs()
-
-        pts_flat = pts.reshape(-1, 3)
-        dirs_flat = torch.repeat_interleave(
-            dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
-
-        rgbs = torch.empty((len(pts_flat), 3)).to(self.device)
-        densities = torch.empty((len(pts_flat), 1)).to(self.device)
-        utils.batch_exec(self.model, rgbs, densities,
-                         bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
-        rgbs = rgbs.reshape(*dists.shape, 3)
-        densities = densities.reshape(dists.shape)
-
-        # Compute loss and update weights
-        bg_color = torch.tensor(self.train_set.bg_color).to(self.device)
-        rgb_map = nerf_lib.integrate_points(dists, rgbs, densities, bg_color)
+        self.train_renderer.precrop = \
+            (self.iter_ctr < self.train_cfg.precrop_iterations)
+        rgb_map, target = self.train_renderer.render(img, pose)
+        
         loss = self.calc_loss(rendered=rgb_map, target=target)
         psnr = utils.compute_psnr(loss)
 

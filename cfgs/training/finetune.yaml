@@ -1,9 +1,9 @@
-num_rays_per_batch: 8192
-num_iterations: 600000
+num_rays_per_batch: 65536
+num_iterations: 150000
 initial_learning_rate: 0.001
-learning_rate_decay: 500000
+learning_rate_decay: 100000
 intervals:
   print: 100
   log: 100
-  ckpt: 10000
+  ckpt: 5000
   test: 5000

@@ -107,17 +107,7 @@ def compute_tensor_size(
     prec: int = 3
 ) -> str:
     bytes_count = sum([t.nelement() * t.element_size() for t in tensors])
-    unit = unit.upper()
-    if unit == 'B':
-        return '{:d} B'.format(bytes_count)
-    elif unit == 'KB':
-        return '{:.{prec}f} KB'.format(bytes_count / (2 ** 10), prec=prec)
-    elif unit == 'MB':
-        return '{:.{prec}f} MB'.format(bytes_count / (2 ** 20), prec=prec)
-    elif unit == 'GB':
-        return '{:.{prec}f} GB'.format(bytes_count / (2 ** 30), prec=prec)
-    else:
-        raise ValueError('Unrecognized unit ' + unit)
+    return format_bytes(bytes_count, unit, prec)
 
 
 def create_logger(name, level='info'):
@@ -139,6 +129,24 @@ def cycle(iterable):
 
 def density2alpha(densities, dists) -> torch.Tensor:
     return 1. - torch.exp(-F.relu(densities) * dists)
+
+
+def format_bytes(
+    bytes_count: int,
+    unit: str = 'B',
+    prec: int = 3
+) -> str:
+    unit = unit.upper()
+    if unit == 'B':
+        return '{:d} B'.format(bytes_count)
+    elif unit == 'KB':
+        return '{:.{prec}f} KB'.format(bytes_count / (2 ** 10), prec=prec)
+    elif unit == 'MB':
+        return '{:.{prec}f} MB'.format(bytes_count / (2 ** 20), prec=prec)
+    elif unit == 'GB':
+        return '{:.{prec}f} GB'.format(bytes_count / (2 ** 30), prec=prec)
+    else:
+        raise ValueError('Unrecognized unit ' + unit)
 
 
 def get_random_pts(n, min_pt, max_pt):
@@ -187,6 +195,10 @@ def loader(logger=None):
 
 def reshape(*tensors: torch.Tensor, shape: Tuple[int]) -> Tuple[torch.Tensor]:
     return tuple([t.reshape(shape) for t in tensors])
+
+
+def print_memory_usage(msg, device=None, unit='MB'):
+    print(msg, ': ', format_bytes(torch.cuda.memory_allocated(device), unit=unit))
 
 
 def to_device(old_dict: Dict[str, torch.Tensor], device: str):
