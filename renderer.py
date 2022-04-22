@@ -20,6 +20,7 @@ class Renderer:
 
         self.precrop = False
         self.all_rays = all_rays
+        # TODO: get this from self.model
         self.device = device
     
     def render(self, img, pose):

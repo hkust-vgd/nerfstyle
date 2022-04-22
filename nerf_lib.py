@@ -87,8 +87,8 @@ class NerfLib:
         # Transform by inverse intrinsic matrix
         dirs = torch.FloatTensor(np.stack([
             (i - intr.cx) / intr.fx,
-            -(j - intr.cy) / intr.fy,
-            -np.ones_like(i)
+            (j - intr.cy) / intr.fy,
+            np.ones_like(i)
         ], axis=-1)).to(self.device)
 
         # Transform by camera pose (camera to world coords)

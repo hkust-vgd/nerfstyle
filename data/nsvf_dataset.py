@@ -36,7 +36,6 @@ class NSVFDataset(Dataset):
         self.imgs = np.stack([_parse_rgb(path) for path in self.rgb_paths])
         self.poses = np.stack([load_matrix(path) for path in self.pose_paths],
                               axis=0)
-        self.poses[:, :3, 1:3] = -self.poses[:, :3, 1:3]
 
         # Convert alpha to white
         assert self.imgs.shape[-1] == 4

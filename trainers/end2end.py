@@ -78,7 +78,7 @@ class End2EndTrainer(Trainer):
     def log_status(self, loss, psnr, cur_lr):
         self.writer.add_scalar('train/loss', loss.item(), self.iter_ctr)
         self.writer.add_scalar('train/psnr', psnr.item(), self.iter_ctr)
-        self.writer.add_scalar('misc/iter_time', time.time() - self.time0,
+        self.writer.add_scalar('misc/iter_time', self.time1 - self.time0,
                                self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
 
@@ -163,6 +163,7 @@ class End2EndTrainer(Trainer):
 
         # Update counter after backprop
         self.iter_ctr += 1
+        self.time1 = time.time()
 
         new_lr = self.train_cfg.initial_learning_rate
         if self.train_cfg.learning_rate_decay:

@@ -13,6 +13,7 @@ class Trainer:
         self.logger = create_logger(name)
         self.iter_ctr = 0
         self.time0 = 0
+        self.time1 = 0
 
         self.name = args.name
         self.log_dir: Path = Path('./runs') / self.name
