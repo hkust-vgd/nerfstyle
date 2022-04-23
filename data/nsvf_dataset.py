@@ -21,17 +21,13 @@ class NSVFDataset(Dataset):
         bbox_path = self.root / 'bbox.txt'
         nf_path = self.root / 'near_and_far.txt'
 
-        assert self.root.exists(), \
-            'Root path "{}" does not exist'.format(self.root)
+        assert self.root.exists(), 'Root path "{}" does not exist'.format(self.root)
 
         split_prefix = {'train': 0, 'val': 1, 'test': 2}
-        self.rgb_paths = sorted(rgb_dir.glob('{}_*.png'.format(
-            split_prefix[split])))
-        self.pose_paths = sorted(pose_dir.glob('{}_*.txt'.format(
-            split_prefix[split])))
+        self.rgb_paths = sorted(rgb_dir.glob('{}_*.png'.format(split_prefix[split])))
+        self.pose_paths = sorted(pose_dir.glob('{}_*.txt'.format(split_prefix[split])))
         assert len(self.rgb_paths) == len(self.pose_paths)
-        assert all([fn1.stem == fn2.stem for fn1, fn2 in
-                    zip(self.rgb_paths, self.pose_paths)])
+        assert all([fn1.stem == fn2.stem for fn1, fn2 in zip(self.rgb_paths, self.pose_paths)])
 
         if skip > 1:
             self.rgb_paths = self.rgb_paths[::skip]
@@ -41,8 +37,7 @@ class NSVFDataset(Dataset):
             return np.array(imageio.imread(path), dtype=np.float32) / 255.0
 
         self.imgs = np.stack([_parse_rgb(path) for path in self.rgb_paths])
-        self.poses = np.stack([utils.load_matrix(path) for path in self.pose_paths],
-                              axis=0)
+        self.poses = np.stack([utils.load_matrix(path) for path in self.pose_paths], axis=0)
 
         # Convert alpha to white
         assert self.imgs.shape[-1] == 4

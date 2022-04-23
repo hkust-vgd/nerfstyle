@@ -20,8 +20,7 @@ class Trainer:
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # Parse args
-        self.dataset_cfg, nargs = config.DatasetConfig.load_nargs(
-            args.dataset_cfg, nargs=nargs)
+        self.dataset_cfg, nargs = config.DatasetConfig.load_nargs(args.dataset_cfg, nargs=nargs)
         self.net_cfg, nargs = config.NetworkConfig.load_nargs(nargs=nargs)
         self.train_cfg, nargs = config.TrainConfig.load_nargs(
             'cfgs/training/{}.yaml'.format(args.mode), nargs=nargs)
@@ -46,16 +45,14 @@ class Trainer:
             return False
 
         is_final = (self.iter_ctr == self.train_cfg.num_iterations) and final
-        flag = (((self.iter_ctr % interval == 0) or is_final) and
-                (self.iter_ctr > after))
+        flag = (((self.iter_ctr % interval == 0) or is_final) and (self.iter_ctr > after))
         return flag
 
     def print_status(self, status_dict, phase='TRAIN', out_fn=None):
         if out_fn is None:
             out_fn = self.logger.info
         log_items = [k + ': ' + str(v) for k, v in status_dict.items()]
-        log_str = '[{}] Iter: {:d}, {}'.format(
-            phase, self.iter_ctr, ', '.join(log_items))
+        log_str = '[{}] Iter: {:d}, {}'.format(phase, self.iter_ctr, ', '.join(log_items))
         out_fn(log_str)
 
     def run_iter(self):

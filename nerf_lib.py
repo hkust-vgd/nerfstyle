@@ -32,8 +32,7 @@ class NerfLib:
     def _load_cuda_ext():
         cuda_dir = Path('./cuda')
         cuda_paths = [p for p in cuda_dir.iterdir() if p.suffix == '.cu']
-        cuda_load_paths = [str(cuda_dir / NerfLib.EXT_MAIN_CPP_FN)] + \
-            [str(p) for p in cuda_paths]
+        cuda_load_paths = [str(cuda_dir / NerfLib.EXT_MAIN_CPP_FN)] + [str(p) for p in cuda_paths]
 
         include_dirs = ['/usr/local/magma/include']
         cuda_ext = load(
@@ -98,8 +97,7 @@ class NerfLib:
             target = img.reshape((-1, 3))
             rays_d = rays_d.reshape((-1, 3))
         else:
-            indices_1d = np.random.choice(
-                np.arange(w * h), bsize, replace=False)
+            indices_1d = np.random.choice(np.arange(w * h), bsize, replace=False)
             indices_2d = (indices_1d // h, indices_1d % h)
             coords = (indices_2d[0] + dy, indices_2d[1] + dx)
             target = img[coords]
@@ -122,8 +120,7 @@ class NerfLib:
             dists (TensorType[N, K]): Distances between samples.
         """
         n_samples = self.net_cfg.num_samples_per_ray
-        z_vals = torch.linspace(rays.near, rays.far, steps=(
-            n_samples + 1)).to(self.device)
+        z_vals = torch.linspace(rays.near, rays.far, steps=(n_samples + 1)).to(self.device)
         z_vals = z_vals.expand([len(rays), n_samples + 1])
 
         lower = z_vals[:, :-1]
@@ -133,8 +130,7 @@ class NerfLib:
         pts = rays.lerp(z_vals)
 
         dists = z_vals[..., 1:] - z_vals[..., :-1]
-        dists = torch.cat([dists, torch.ones(
-            (len(dists), 1)).to(self.device) * 1e10], dim=-1)
+        dists = torch.cat([dists, torch.ones((len(dists), 1)).to(self.device) * 1e10], dim=-1)
         return pts, dists
 
     def integrate_points(
@@ -144,8 +140,7 @@ class NerfLib:
         densities: TensorType['N', 'K'],
         bg_color: TensorType[3]
     ) -> TensorType['N', 3]:
-        """Evaluate the volumetric rendering equation for N rays, each with
-        K samples.
+        """Evaluate the volumetric rendering equation for N rays, each with K samples.
 
         Args:
             dists (TensorType[N, K]): Distances between samples.

@@ -116,8 +116,7 @@ class DistillTrainer(Trainer):
     losses = {
         'mse': partial(F.mse_loss, reduction='none'),
         'mae': partial(F.l1_loss, reduction='none'),
-        'mape': lambda out, tar: F.l1_loss(
-            out, tar, reduction='none') / (torch.abs(tar) + 0.1)
+        'mape': lambda out, tar: F.l1_loss(out, tar, reduction='none') / (torch.abs(tar) + 0.1)
     }
 
     def __init__(self, args, nargs):
@@ -166,8 +165,7 @@ class DistillTrainer(Trainer):
         intervals = [np.linspace(start, end, num+1) for start, end, num in
                      zip(min_pt, max_pt, net_res)]
 
-        node_idx_fmt = '{{:0{}d}}_{{:0{}d}}_{{:0{}d}}'.format(
-            *[len(str(dim)) for dim in net_res])
+        node_idx_fmt = '{{:0{}d}}_{{:0{}d}}_{{:0{}d}}'.format(*[len(str(dim)) for dim in net_res])
 
         nodes = []
         for pt in itertools.product(*[range(ax) for ax in net_res]):
@@ -189,8 +187,7 @@ class DistillTrainer(Trainer):
         dirs = torch.empty((self.num_nets * samples_per_net, 3))
 
         tsize = utils.compute_tensor_size(pts, pts_norm, dirs, unit='GB')
-        self.logger.info('Creating {:d} input samples ({})...'.format(
-            samples_per_net, tsize))
+        self.logger.info('Creating {:d} input samples ({})...'.format(samples_per_net, tsize))
 
         def gen_one_node(node):
             node = node[0]
@@ -199,8 +196,7 @@ class DistillTrainer(Trainer):
             node_dirs = utils.get_random_dirs(samples_per_net)
             return node_pts, node_pts_norm, node_dirs
 
-        utils.batch_exec(gen_one_node, pts, pts_norm, dirs,
-                         bsize=1, progress=True)(node_batch)
+        utils.batch_exec(gen_one_node, pts, pts_norm, dirs, bsize=1, progress=True)(node_batch)
 
         # Compute embedded points / dirs
         # Evaluate ground truth from teacher model
@@ -214,8 +210,7 @@ class DistillTrainer(Trainer):
             pts_batch = pts_batch.to(self.device)
             dirs_batch = dirs_batch.to(self.device)
             color, density = self.teacher(pts_batch, dirs_batch)
-            alpha = utils.density2alpha(
-                density, self.train_cfg.distill.alpha_dist)
+            alpha = utils.density2alpha(density, self.train_cfg.distill.alpha_dist)
             return color.cpu(), alpha.cpu()
 
         with torch.no_grad():
@@ -235,18 +230,15 @@ class DistillTrainer(Trainer):
         self.iter_ctr = 0
         self.logger.info('Starting round #' + str(self.round_ctr))
 
-        self.cur_nodes = self.nodes_queue.batch_popleft(
-            self.train_cfg.distill.nets_bsize)
+        self.cur_nodes = self.nodes_queue.batch_popleft(self.train_cfg.distill.nets_bsize)
         for node in self.cur_nodes:
             node.log_init()
         self.num_nets = len(self.cur_nodes)
 
-        self.model = StaticMultiNerf.create_nerf(
-            self.num_nets, self.net_cfg).to(self.device)
+        self.model = StaticMultiNerf.create_nerf(self.num_nets, self.net_cfg).to(self.device)
         self.logger.info('Created student model ' + str(self.model))
         self.optim = torch.optim.Adam(
-            self.model.parameters(),
-            lr=self.train_cfg.initial_learning_rate)
+            self.model.parameters(), lr=self.train_cfg.initial_learning_rate)
 
         self.train_set = self._build_dataset(
             self.cur_nodes, self.train_cfg.distill.train_samples_pnet)
@@ -258,10 +250,8 @@ class DistillTrainer(Trainer):
         # Collate dataset items by 2nd (batch) dimension
         def collate_fn(elems):
             keys = elems[0].keys()
-            collate_dict = {k: torch.stack(
-                [e[k] for e in elems], dim=1).to(self.device)
-                for k in keys
-            }
+            collate_dict = {
+                k: torch.stack([e[k] for e in elems], dim=1).to(self.device) for k in keys}
             return collate_dict
 
         self.train_loader = utils.cycle(DataLoader(
@@ -294,8 +284,7 @@ class DistillTrainer(Trainer):
         alpha_loss = loss_fn(alphas, alphas_gt)  # (N,B,1)
         all_loss = torch.cat((color_loss, alpha_loss), dim=-1)  # (N,B,4)
 
-        mean_per_net = partial(
-            einops.reduce, pattern='n b c -> n', reduction='mean')
+        mean_per_net = partial(einops.reduce, pattern='n b c -> n', reduction='mean')
 
         losses = utils.to_device({
             'all': mean_per_net(all_loss),
@@ -390,11 +379,9 @@ class DistillTrainer(Trainer):
         for batch in tqdm(self.test_loader):
             color, density = self.model(batch['pts'], batch['dirs'])
             colors.append(color)
-            alphas.append(utils.density2alpha(
-                density, self.train_cfg.distill.alpha_dist))
+            alphas.append(utils.density2alpha(density, self.train_cfg.distill.alpha_dist))
         colors, alphas = utils.batch_cat(colors, alphas, dim=1)
-        colors_gt, alphas_gt = \
-            [t.to(self.device) for t in self.test_set.get_gt()]
+        colors_gt, alphas_gt = [t.to(self.device) for t in self.test_set.get_gt()]
 
         # Calculate losses for all metrics
         losses = {
@@ -406,8 +393,7 @@ class DistillTrainer(Trainer):
 
         # Update best losses for all metrics
         for mk, k in itertools.product(self.metrics, self.metric_items):
-            self.best_losses[mk][k] = torch.minimum(
-                    self.best_losses[mk][k], losses[mk][k])
+            self.best_losses[mk][k] = torch.minimum(self.best_losses[mk][k], losses[mk][k])
 
         # Log metrics
         for i in range(self.num_nets):
@@ -423,11 +409,9 @@ class DistillTrainer(Trainer):
         self.optim.zero_grad()
         batch = next(self.train_loader)
         colors, densities = self.model(batch['pts'], batch['dirs'])
-        alphas = utils.density2alpha(
-            densities, self.train_cfg.distill.alpha_dist)
+        alphas = utils.density2alpha(densities, self.train_cfg.distill.alpha_dist)
 
-        mse_losses = self.calc_loss(
-            colors, alphas, batch['colors_gt'], batch['alphas_gt'], 'mse')
+        mse_losses = self.calc_loss(colors, alphas, batch['colors_gt'], batch['alphas_gt'], 'mse')
         mse_loss = mse_losses['all'].sum()
         mse_loss.backward()
         self.optim.step()

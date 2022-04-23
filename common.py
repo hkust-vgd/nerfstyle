@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from numpy import ndarray
 import torch
 
@@ -61,7 +61,7 @@ class RayBatch:
             coeffs (ndarray[N, K]): Array of K coefficients for each ray.
 
         Returns:
-            ndarray[N, K, 3]: [description]
+            ndarray[N, K, 3]: Array of points at interpolated positions for each ray.
         """
         assert len(coeffs) == len(self)
         out = torch.einsum('nc, nk -> nkc', self.dests, coeffs) + self.origin

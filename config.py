@@ -106,12 +106,10 @@ class DatasetConfig(Config):
 @dataclass
 class NetworkConfig(Config):
     x_enc_count: int
-    """No. of frequencies (pairs of sines / cosines) to encode the
-        input position."""
+    """No. of frequencies (pairs of sines / cosines) to encode the input position."""
 
     d_enc_count: int
-    """No. of frequencies (pairs of sines / cosines) to encode the
-        view direction."""
+    """No. of frequencies (pairs of sines / cosines) to encode the view direction."""
 
     activation: str
     """Activation function after each linear layer."""
@@ -144,7 +142,7 @@ class TrainConfig(Config):
 
     learning_rate_decay: int
     """No. of iterations when learning rate drops to 10% of initial value.
-        Set to zero to use constant rate."""
+       Set to zero to use constant rate."""
 
     num_iterations: int
     """No. of total iterations for training."""
@@ -165,12 +163,11 @@ class TrainConfig(Config):
         """Alpha distance."""
 
         init_data_bsize: int
-        """Batch size of points when initializing dataset, at the beginning
-           of training each new batch of nodes."""
+        """Batch size of points when initializing dataset, at the beginning of training each new
+           batch of nodes."""
 
         nets_bsize: int
-        """No. of subnetworks to simultaneously train during one round of
-           training."""
+        """No. of subnetworks to simultaneously train during one round of training."""
 
         quantile: float
         """Quantile to use during metric evaluation."""
@@ -198,8 +195,7 @@ class TrainConfig(Config):
 @dataclass
 class OccupancyGridConfig(Config):
     subgrid_size: int
-    """No. of cells to subdivide each grid cell during testing for
-        occupancy."""
+    """No. of cells to subdivide each grid cell during testing for occupancy."""
 
     threshold: float
     """Threshold value determining if cell is occupied."""

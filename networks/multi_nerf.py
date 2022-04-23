@@ -38,8 +38,7 @@ class MultiNerf(Nerf):
 
         # Register buffers for dynamic evaluation
         bbox_path = dataset_cfg.root_path / 'bbox.txt'
-        self.global_min_pt, self.global_max_pt = \
-            utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+        self.global_min_pt, self.global_max_pt = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
         self.net_res = dataset_cfg.net_res
         self.mid_pts = np.empty((num_nets, 3))
         self.voxel_size, self.basis = None, None
@@ -62,8 +61,7 @@ class MultiNerf(Nerf):
             'd_widths': [32, 32],
             'activation': net_cfg.activation
         }
-        model = cls(num_nets, dataset_cfg,
-                    net_cfg.network_seed, **nerf_config)
+        model = cls(num_nets, dataset_cfg, net_cfg.network_seed, **nerf_config)
         return model
 
     @torch.no_grad()
@@ -107,18 +105,16 @@ class MultiNerf(Nerf):
             v = getattr(self, k)
             setattr(self, k, torch.FloatTensor(v).to(device))
 
-        self.voxel_size = (self.global_max_pt - self.global_min_pt) \
-            / self.net_res
-        self.basis = torch.LongTensor([
-            self.net_res[2] * self.net_res[1], self.net_res[2], 1])
+        self.voxel_size = (self.global_max_pt - self.global_min_pt) / self.net_res
+        self.basis = torch.LongTensor([self.net_res[2] * self.net_res[1], self.net_res[2], 1])
         self.basis = self.basis.to(device)
 
 
 class StaticMultiNerf(MultiNerf):
     def __init__(self, *params, **nerf_params) -> None:
         """
-        Accepts a 2D batch (N, B) of input, i.e. each sub-network receives the
-        same no. of input samples to evaluate. Used during distillation stage.
+        Accepts a 2D batch (N, B) of input, i.e. each sub-network receives the same no. of input
+        samples to evaluate. Used during distillation stage.
         """
         super().__init__(*params, **nerf_params)
 
@@ -134,10 +130,9 @@ class StaticMultiNerf(MultiNerf):
 class DynamicMultiNerf(MultiNerf):
     def __init__(self, *params, **nerf_params) -> None:
         """
-        Accepts a 1D batch (B, ) of input. Each input sample is delegated to
-        corresponding sub-network based on its position. Each sub-network
-        receives an unequal no. of input samples. Used during finetuning stage
-        and inference.
+        Accepts a 1D batch (B, ) of input. Each input sample is delegated to corresponding
+        sub-network based on its position. Each sub-network receives an unequal no. of input
+        samples. Used during finetuning stage and inference.
         """
         super().__init__(*params, **nerf_params)
         self.occ_map = None
@@ -164,14 +159,11 @@ class DynamicMultiNerf(MultiNerf):
 
     def forward(self, pts, dirs=None, *_):
         assert self._ready
-        from time import time
-        t0 = time()
 
         net_indices, valid = self.map_to_nets_indices(pts)
         if self.occ_map is not None:
             net_indices = torch.where(self.occ_map(pts), net_indices, -1)
             valid = torch.sum(net_indices < 0).item()
-        t1 = time()
 
         if (valid == len(pts)):
             rgbs = torch.zeros((len(pts), 3)).to(pts)
@@ -183,8 +175,7 @@ class DynamicMultiNerf(MultiNerf):
         sorted_pts, sorted_dirs = pts[order], dirs[order]
 
         # Perform global-to-local mapping
-        nerf_lib.global_to_local(
-            sorted_pts[valid:], self.mid_pts, self.voxel_size, counts)
+        nerf_lib.global_to_local(sorted_pts[valid:], self.mid_pts, self.voxel_size, counts)
 
         sorted_rgbs = torch.zeros((len(pts), 3)).to(sorted_pts)
         sorted_densities = torch.zeros((len(pts), 1)).to(sorted_pts)
@@ -194,5 +185,5 @@ class DynamicMultiNerf(MultiNerf):
         rgbs = torch.empty_like(sorted_rgbs)
         densities = torch.empty_like(sorted_densities)
         rgbs[order], densities[order] = sorted_rgbs, sorted_densities
-        
+
         return rgbs, densities

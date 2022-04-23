@@ -35,16 +35,13 @@ def main():
 
     # Compute offset coords (1, K^3, 3)
     voxel_size = (bbox_max - bbox_min) / dataset_cfg.grid_res
-    offset_samples = [torch.linspace(
-        0, voxel_size[d], grid_cfg.subgrid_size) for d in range(3)]
+    offset_samples = [torch.linspace(0, voxel_size[d], grid_cfg.subgrid_size) for d in range(3)]
     offset_samples = torch.stack(
-        torch.meshgrid(*offset_samples, indexing='ij'), dim=-1
-    ).reshape(1, -1, 3)
+        torch.meshgrid(*offset_samples, indexing='ij'), dim=-1).reshape(1, -1, 3)
 
     # Combine the two
     points_per_voxel = grid_cfg.subgrid_size ** 3
-    all_samples = top_left_samples.expand(-1, points_per_voxel, -1) \
-        + offset_samples
+    all_samples = top_left_samples.expand(-1, points_per_voxel, -1) + offset_samples
     all_samples = all_samples.to(device)
 
     # Load embedders and model

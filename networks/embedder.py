@@ -14,8 +14,7 @@ class Embedder(nn.Module):
 
         self.num_freqs = num_freqs
         self.append_input = append_input
-        self.register_buffer(
-            'basis', 2. ** torch.linspace(0., num_freqs - 1, steps=num_freqs))
+        self.register_buffer('basis', 2. ** torch.linspace(0., num_freqs - 1, steps=num_freqs))
 
     @property
     def out_channels(self):
@@ -28,8 +27,7 @@ class Embedder(nn.Module):
         # F: no. of functions (= 2)
         out = einops.repeat(x, 'b k -> b k c', c=self.num_freqs)
         out = out * self.basis
-        out = einops.rearrange([torch.sin(out), torch.cos(out)],
-                               'f b k c -> b (k c f)')
+        out = einops.rearrange([torch.sin(out), torch.cos(out)], 'f b k c -> b (k c f)')
         if self.append_input:
             out = torch.cat([out, x], dim=1)
         return out
@@ -47,8 +45,7 @@ class MultiEmbedder(Embedder):
         # N: no. of networks
         out = einops.repeat(x, 'n b k -> n b k c', c=self.num_freqs)
         out = out * self.basis
-        out = einops.rearrange([torch.sin(out), torch.cos(out)],
-                               'f n b k c -> n b (k c f)')
+        out = einops.rearrange([torch.sin(out), torch.cos(out)], 'f n b k c -> n b (k c f)')
         if self.append_input:
             out = torch.cat([out, x], dim=2)
         return out

@@ -24,8 +24,7 @@ class End2EndTrainer(Trainer):
             self.model = SingleNerf.create_nerf(self.net_cfg)
         elif args.mode == 'finetune':
             num_nets = np.prod(self.dataset_cfg.net_res)
-            self.model = DynamicMultiNerf.create_nerf(
-                num_nets, self.net_cfg, self.dataset_cfg)
+            self.model = DynamicMultiNerf.create_nerf(num_nets, self.net_cfg, self.dataset_cfg)
         self.model = self.model.to(self.device)
         self.logger.info('Created model ' + str(self.model))
 
@@ -46,13 +45,11 @@ class End2EndTrainer(Trainer):
 
         # Initialize dataset
         self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
-        self.train_loader = utils.cycle(DataLoader(
-            self.train_set, batch_size=None, shuffle=True))
+        self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
         self.test_set = NSVFDataset(self.dataset_cfg.root_path, 'test', skip=4)
-        self.test_loader = DataLoader(
-            self.test_set, batch_size=None, shuffle=False)
+        self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
 
         # Initialize renderers
@@ -78,8 +75,7 @@ class End2EndTrainer(Trainer):
     def log_status(self, loss, psnr, cur_lr):
         self.writer.add_scalar('train/loss', loss.item(), self.iter_ctr)
         self.writer.add_scalar('train/psnr', psnr.item(), self.iter_ctr)
-        self.writer.add_scalar('misc/iter_time', self.time1 - self.time0,
-                               self.iter_ctr)
+        self.writer.add_scalar('misc/iter_time', self.time1 - self.time0, self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
 
     def load_ckpt(self, ckpt_path):
@@ -88,8 +84,7 @@ class End2EndTrainer(Trainer):
             ckpt = torch.load(ckpt_path)
             if 'model' not in ckpt.keys():
                 self.model.load_nodes(ckpt['trained'], self.device)
-                self.logger.info('Loaded distill checkpoint \"{}\"'.format(
-                    ckpt_path))
+                self.logger.info('Loaded distill checkpoint \"{}\"'.format(ckpt_path))
                 return
 
             # TODO: Remove if all old models are fixed
@@ -140,8 +135,7 @@ class End2EndTrainer(Trainer):
             img, pose = img.to(self.device), pose.to(self.device)
             rgb_map, _ = self.test_renderer.render(img, pose)
 
-            rgb_output = einops.rearrange(
-                rgb_map.reshape(img.shape), 'h w c -> c h w')
+            rgb_output = einops.rearrange(rgb_map.reshape(img.shape), 'h w c -> c h w')
             save_path = img_dir / 'frame_{:03d}.png'.format(i)
             torchvision.utils.save_image(rgb_output, save_path)
 
@@ -150,10 +144,9 @@ class End2EndTrainer(Trainer):
         img, pose = next(self.train_loader)
         img, pose = img.to(self.device), pose.to(self.device)
 
-        self.train_renderer.precrop = \
-            (self.iter_ctr < self.train_cfg.precrop_iterations)
+        self.train_renderer.precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
         rgb_map, target = self.train_renderer.render(img, pose)
-        
+
         loss = self.calc_loss(rendered=rgb_map, target=target)
         psnr = utils.compute_psnr(loss)
 

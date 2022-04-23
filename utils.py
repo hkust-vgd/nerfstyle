@@ -94,8 +94,7 @@ def batch_exec(
 
 
 def compute_psnr(loss):
-    psnr = -10. * torch.log(loss) / torch.log(
-        torch.FloatTensor([10.]).to(loss.device))
+    psnr = -10. * torch.log(loss) / torch.log(torch.FloatTensor([10.]).to(loss.device))
     return psnr
 
 
@@ -112,8 +111,7 @@ def create_logger(name, level='info'):
     logger = logging.getLogger(name)
     logger.setLevel(level.upper())
     handler = ExitHandler(sys.stdout)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     return logger
@@ -148,9 +146,7 @@ def format_bytes(
 
 
 def get_random_pts(n, min_pt, max_pt):
-    pts = np.stack([
-        np.random.uniform(min_pt[i], max_pt[i], size=(n,)) for i in range(3)
-    ], axis=1)
+    pts = np.stack([np.random.uniform(min_pt[i], max_pt[i], size=(n,)) for i in range(3)], axis=1)
     pts_norm = 2 * (pts - min_pt) / (max_pt - min_pt) - 1
     return torch.FloatTensor(pts), torch.FloatTensor(pts_norm)
 
@@ -162,8 +158,7 @@ def get_random_dirs(n):
 
 
 def get_repr(obj, attrs):
-    attrs_str = ', '.join(
-        ['{}={}'.format(attr, getattr(obj, attr)) for attr in attrs])
+    attrs_str = ', '.join(['{}={}'.format(attr, getattr(obj, attr)) for attr in attrs])
     obj_repr = '{}({})'.format(type(obj).__name__, attrs_str)
     return obj_repr
 

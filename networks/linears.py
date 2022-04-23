@@ -75,14 +75,11 @@ class MultiLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
 
-        self.weight = nn.Parameter(torch.Tensor(
-            num_networks, out_features, in_features))
-        self.bias = nn.Parameter(torch.Tensor(
-            num_networks, 1, out_features))
+        self.weight = nn.Parameter(torch.Tensor(num_networks, out_features, in_features))
+        self.bias = nn.Parameter(torch.Tensor(num_networks, 1, out_features))
 
         with MultiLinear.rng_cm:
-            nn.init.kaiming_uniform_(self.weight, a=sqrt(5),
-                                     nonlinearity=activation)
+            nn.init.kaiming_uniform_(self.weight, a=sqrt(5), nonlinearity=activation)
             standard_uniform_(self.bias)
 
     def __repr__(self) -> str:
@@ -110,8 +107,7 @@ class DynamicMultiLinear(MultiLinear):
 
         self.group_limits = [2048, 1024]
         self.aux_index = nerf_lib.init_multimatmul_aux_data(
-            self.num_networks, self.out_features,
-            self.in_features, self.group_limits)
+            self.num_networks, self.out_features, self.in_features, self.group_limits)
 
     def forward(
         self,
@@ -119,7 +115,5 @@ class DynamicMultiLinear(MultiLinear):
         counts: TensorType['num_networks']
     ) -> TensorType['batch_size', 'out_channels']:
 
-        cuda_result = MultiAddmm.apply(
-            self.weight, self.bias, x, counts.cpu(), self.aux_index)
-
+        cuda_result = MultiAddmm.apply(self.weight, self.bias, x, counts.cpu(), self.aux_index)
         return cuda_result

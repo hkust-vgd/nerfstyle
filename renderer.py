@@ -2,6 +2,7 @@ import torch
 from nerf_lib import nerf_lib
 import utils
 
+
 class Renderer:
     def __init__(
         self,
@@ -22,7 +23,7 @@ class Renderer:
         self.all_rays = all_rays
         # TODO: get this from self.model
         self.device = device
-    
+
     def render(self, img, pose):
         # Generate rays
         precrop_frac, rays_bsize = None, None
@@ -32,15 +33,13 @@ class Renderer:
             rays_bsize = self.train_cfg.num_rays_per_batch
 
         target, rays = nerf_lib.generate_rays(
-            img, pose, self.dataset,
-            precrop=precrop_frac, bsize=rays_bsize)
+            img, pose, self.dataset, precrop=precrop_frac, bsize=rays_bsize)
         dirs = rays.viewdirs()
-        
+
         # Sample points
         pts, dists = nerf_lib.sample_points(rays)
         pts_flat = pts.reshape(-1, 3)
-        dirs_flat = torch.repeat_interleave(
-            dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
+        dirs_flat = torch.repeat_interleave(dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
         del pts, dirs
 
         # Evaluate model
