@@ -2,11 +2,18 @@ from pathlib import Path
 import numpy as np
 import imageio
 from torch.utils.data import Dataset
-from utils import Intrinsics, load_matrix
+
+import utils
+from common import Intrinsics
 
 
 class NSVFDataset(Dataset):
-    def __init__(self, dataroot: Path, split: str = 'train', factor: int = 1):
+    def __init__(
+        self,
+        dataroot: Path,
+        split: str = 'train',
+        skip: int = 1
+    ):
         self.root = dataroot
         rgb_dir = self.root / 'rgb'
         pose_dir = self.root / 'pose'
@@ -26,15 +33,15 @@ class NSVFDataset(Dataset):
         assert all([fn1.stem == fn2.stem for fn1, fn2 in
                     zip(self.rgb_paths, self.pose_paths)])
 
-        if factor > 1:
-            self.rgb_paths = self.rgb_paths[::factor]
-            self.pose_paths = self.pose_paths[::factor]
+        if skip > 1:
+            self.rgb_paths = self.rgb_paths[::skip]
+            self.pose_paths = self.pose_paths[::skip]
 
         def _parse_rgb(path):
             return np.array(imageio.imread(path), dtype=np.float32) / 255.0
 
         self.imgs = np.stack([_parse_rgb(path) for path in self.rgb_paths])
-        self.poses = np.stack([load_matrix(path) for path in self.pose_paths],
+        self.poses = np.stack([utils.load_matrix(path) for path in self.pose_paths],
                               axis=0)
 
         # Convert alpha to white
@@ -48,7 +55,7 @@ class NSVFDataset(Dataset):
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
         self.bbox_min, self.bbox_max = \
-            load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+            utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
 
         # bbox_center = (bbox_min + bbox_max) / 2
         # pts = self.poses[:, :3, -1]
@@ -57,7 +64,7 @@ class NSVFDataset(Dataset):
         # self.near = np.amin(np.linalg.norm(pts - closest_pts, axis=1))
         # self.far = np.amax(np.linalg.norm(pts - furthest_pts, axis=1))
 
-        self.near, self.far = load_matrix(nf_path)[0]
+        self.near, self.far = utils.load_matrix(nf_path)[0]
 
         self.bg_color = np.ones(3, dtype=np.float32)
 

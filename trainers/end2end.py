@@ -50,7 +50,7 @@ class End2EndTrainer(Trainer):
             self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = NSVFDataset(self.dataset_cfg.root_path, 'test', factor=4)
+        self.test_set = NSVFDataset(self.dataset_cfg.root_path, 'test', skip=4)
         self.test_loader = DataLoader(
             self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
@@ -91,7 +91,7 @@ class End2EndTrainer(Trainer):
                 self.logger.info('Loaded distill checkpoint \"{}\"'.format(
                     ckpt_path))
                 return
-            
+
             # TODO: Remove if all old models are fixed
             if 'x_embedder.basis' not in ckpt['model'].keys():
                 ckpt['model']['x_embedder.basis'] = 2 ** torch.range(0, 9, device=self.device)

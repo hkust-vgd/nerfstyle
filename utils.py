@@ -12,8 +12,6 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-Intrinsics = namedtuple('Intrinsics', ['h', 'w', 'fx', 'fy', 'cx', 'cy'])
-
 
 def batch(*tensors, bsize=1, progress=False):
     batch_range = range(0, len(tensors[0]), bsize)
@@ -231,7 +229,7 @@ class Clock:
         self.record[msg].append(out)
         if self.verbose:
             print('Event "{}": {:.3f}s'.format(msg, out))
-    
+
     def print_stats(self):
         stats_table = []
         for k in self.record.keys():
@@ -240,7 +238,7 @@ class Clock:
                 stat = stat_fn(self.record[k])
                 stats_row.append('{:.5f} s'.format(stat))
             stats_table.append(stats_row)
-        
+
         headers = ['Event'] + list(self.stats.keys())
         stats_table = tabulate(stats_table, headers=headers)
         print(stats_table)

@@ -1,6 +1,29 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numpy import ndarray
 import torch
+
+
+@dataclass(frozen=True)
+class Intrinsics:
+    """Camera specifications."""
+
+    h: int
+    """Height of each frame."""
+
+    w: int
+    """Width of each frame."""
+
+    fx: float
+    """Focal length in X-axis."""
+
+    fy: float
+    """Focal length in Y-axis."""
+
+    cx: float
+    """Camera center offset in X-axis."""
+
+    cy: float
+    """Camera center offset in Y-axis."""
 
 
 @dataclass
@@ -18,6 +41,11 @@ class RayBatch:
 
     far: float
     """Furthest distance of object box from any ray origin."""
+
+    def __post_init__(self):
+        # Normalize the rays to unit vectors
+        assert len(self.dests.shape) == 2
+        self.dests = self.dests / torch.norm(self.dests, dim=-1, keepdim=True)
 
     def __len__(self):
         return len(self.dests)

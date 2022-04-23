@@ -8,7 +8,7 @@ from torchtyping import TensorType
 
 from config import NetworkConfig, TrainConfig
 from data.nsvf_dataset import NSVFDataset as Dataset
-from ray_batch import RayBatch
+from common import RayBatch
 import utils
 
 
@@ -57,8 +57,8 @@ class NerfLib:
         """Generate a batch of rays.
 
         Args:
-            img (TensorType['h', 'w', 3]): Image tensor.
-            pose (TensorType[4, 4]): Camera pose tensor.
+            img (TensorType['h', 'w', 3]): Ground truth image.
+            pose (TensorType[4, 4]): Camera-to-world transformation matrix.
             dataset (Dataset): Dataset object.
             precrop (Optional[float]): Precrop factor; None if not specified.
             bsize (Optional[int]): Size of ray batch. All rays are used if
@@ -84,14 +84,14 @@ class NerfLib:
             x_coords, y_coords = x_coords[dx:dx+w], y_coords[dy:dy+h]
 
         i, j = np.meshgrid(x_coords, y_coords, indexing='xy')
-        # Transform by inverse intrinsic matrix
-        dirs = torch.FloatTensor(np.stack([
-            (i - intr.cx) / intr.fx,
-            (j - intr.cy) / intr.fy,
-            np.ones_like(i)
-        ], axis=-1)).to(self.device)
+        k = np.ones_like(i)
 
-        # Transform by camera pose (camera to world coords)
+        # Pixel coords to camera frame
+        dirs = torch.tensor(np.stack([
+            (i - intr.cx) / intr.fx, (j - intr.cy) / intr.fy, k
+        ], axis=-1), device=self.device)
+
+        # Camera frame to world frame
         rays_d = torch.einsum('ij, hwj -> hwi', pose_r, dirs)
 
         if bsize is None:
@@ -132,8 +132,7 @@ class NerfLib:
         z_vals = lower + (upper - lower) * t_rand
         pts = rays.lerp(z_vals)
 
-        dists = (z_vals[..., 1:] - z_vals[..., :-1]) * \
-            torch.norm(rays.dests, dim=-1, keepdim=True)
+        dists = z_vals[..., 1:] - z_vals[..., :-1]
         dists = torch.cat([dists, torch.ones(
             (len(dists), 1)).to(self.device) * 1e10], dim=-1)
         return pts, dists
