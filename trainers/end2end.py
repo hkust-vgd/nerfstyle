@@ -6,13 +6,12 @@ import torchvision
 import einops
 from tqdm import tqdm
 
-from data.nsvf_dataset import NSVFDataset
+from data import get_dataset
 from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
-from nerf_lib import nerf_lib
 from renderer import Renderer
+from trainers.base import Trainer
 import utils
-from .base import Trainer
 
 
 class End2EndTrainer(Trainer):
@@ -44,11 +43,11 @@ class End2EndTrainer(Trainer):
                 self.model.load_occ_map(args.occ_map, self.device)
 
         # Initialize dataset
-        self.train_set = NSVFDataset(self.dataset_cfg.root_path, 'train')
+        self.train_set = get_dataset(self.dataset_cfg, 'train')
         self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = NSVFDataset(self.dataset_cfg.root_path, 'test', skip=4)
+        self.test_set = get_dataset(self.dataset_cfg, 'test', skip=5)
         self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
 

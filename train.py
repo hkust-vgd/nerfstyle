@@ -1,5 +1,5 @@
 import argparse
-import trainers
+from trainers import get_trainer
 
 
 def train():
@@ -13,7 +13,7 @@ def train():
     parser.add_argument('--occ-map')
 
     args, nargs = parser.parse_known_args()
-    trainer = trainers.get_trainer(args, nargs)
+    trainer = get_trainer(args, nargs)
 
     try:
         trainer.run()

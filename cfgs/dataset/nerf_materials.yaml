@@ -1,5 +1,5 @@
 root_path: ~/datasets/nsvf/Synthetic_NeRF/Materials/
-type: nsvf_dataset
+type: NSVF
 grid_res:
 - 256
 - 224

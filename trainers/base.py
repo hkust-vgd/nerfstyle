@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from pathlib import Path
 import numpy as np
 import torch
@@ -8,7 +9,7 @@ from nerf_lib import nerf_lib
 from utils import create_logger
 
 
-class Trainer:
+class Trainer(ABC):
     def __init__(self, name, args, nargs):
         self.logger = create_logger(name)
         self.iter_ctr = 0
@@ -55,6 +56,7 @@ class Trainer:
         log_str = '[{}] Iter: {:d}, {}'.format(phase, self.iter_ctr, ', '.join(log_items))
         out_fn(log_str)
 
+    @abstractmethod
     def run_iter(self):
         pass
 

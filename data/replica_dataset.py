@@ -1,19 +1,18 @@
 import json
 import numpy as np
-from pathlib import Path
-from torch.utils.data import Dataset
+
+from data.base_dataset import BaseDataset
+from common import Intrinsics
+import utils
 
 
-class ReplicaDataset(Dataset):
-    def __init__(
-        self,
-        dataroot: Path
-    ):
-        self.root = dataroot
+class ReplicaDataset(BaseDataset):
+    def __init__(self, *args):
+        super().__init__(*args)
 
         self.rgb_paths = sorted(self.root.glob('*_rgb.png'))
         self.camera_path = self.root / 'cameras.json'
-        self.focal_length = 800
+        focal_ratio = 0.5
 
         self.camera_t = np.array([
             [1, 0, 0],
@@ -32,27 +31,36 @@ class ReplicaDataset(Dataset):
             self.cameras = json.load(f)
 
         assert len(self.rgb_paths) == len(self.cameras)
-        assert np.all([self.cameras[0]['K'] == camera['K'] for camera in self.cameras])
 
-        intrinsics_matrix = np.array(self.cameras[0]['K'])
-        print(intrinsics_matrix)
+        if self.skip > 1:
+            self.rgb_paths = self.rgb_paths[::self.skip]
 
-        self.poses = [camera['Rt'] for camera in self.cameras]
+        self.imgs = np.stack([utils.parse_rgb(path) for path in self.rgb_paths])
+        self.poses = np.stack([camera['Rt'] for camera in self.cameras])
+        self._alpha2white()
+
+        if self.skip > 1:
+            self.poses = self.poses[::self.skip]
+
         for i in range(len(self)):
             R = np.copy(self.poses[i, :3, :3])
             t = np.copy(self.poses[i, :3, 3])
             self.poses[i, :3, 3] = -np.matmul(R.T, t)
             self.poses[i, :3, :3] = np.matmul(self.camera_t, R).T
 
-        self.poses = np.einsum('ij, njk -> nik', self.pose_t, self.poses)[:, :3]
+        self.poses = np.einsum('ij, njk -> nik', self.pose_t, self.poses)
+        self.poses = self.poses.astype(np.float32)
 
-        # BBoxes
-        # Near, far
+        _, H, W, _ = self.imgs.shape
+        cx, cy = W // 2, H // 2
+        f = focal_ratio * max(H, W)
+        self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-    def __len__(self):
-        return len(self.rgb_paths)
+        # Use hard coded values for now
+        self.near = 0.5
+        self.far = 8.0
+        self.bg_color = np.ones(3, dtype=np.float32)
 
-
-if __name__ == '__main__':
-    root_path = Path('/home/hwpang/datasets/replica_all/train/00/')
-    dataset = ReplicaDataset(root_path)
+    def __str__(self):
+        desc = 'Replica dataset \"{}\" with {:d} entries'
+        return desc.format(self.root.stem, len(self))

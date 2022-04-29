@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
+import imageio
 
 
 def batch(*tensors, bsize=1, progress=False):
@@ -188,6 +189,10 @@ def loader(logger=None):
 
 def reshape(*tensors: torch.Tensor, shape: Tuple[int]) -> Tuple[torch.Tensor]:
     return tuple([t.reshape(shape) for t in tensors])
+
+
+def parse_rgb(path):
+    return np.array(imageio.imread(path), dtype=np.float32) / 255.0
 
 
 def print_memory_usage(msg, device=None, unit='MB'):

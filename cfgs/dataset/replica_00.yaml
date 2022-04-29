@@ -1,0 +1,10 @@
+root_path: ~/datasets/replica_all/train/00/
+type: Replica
+grid_res:
+- 0
+- 0
+- 0
+net_res:
+- 0
+- 0
+- 0
