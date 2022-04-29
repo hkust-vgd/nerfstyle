@@ -1,18 +1,35 @@
+from typing import Tuple, TypeVar
 import torch
+from torchtyping import TensorType
+
+from config import NetworkConfig, TrainConfig
+from data.base_dataset import BaseDataset
 from nerf_lib import nerf_lib
+from networks.nerf import Nerf
 import utils
+
+T = TypeVar('T', bound='Renderer')
 
 
 class Renderer:
     def __init__(
-        self,
-        model,
-        dataset,
-        net_cfg,
-        train_cfg,
-        all_rays=True,
-        device='cuda',
-    ):
+        self: T,
+        model: Nerf,
+        dataset: BaseDataset,
+        net_cfg: NetworkConfig,
+        train_cfg: TrainConfig,
+        all_rays: bool = True
+    ) -> None:
+        """NeRF renderer.
+
+        Args:
+            model (Nerf): Backbone model.
+            dataset (BaseDataset): Dataset which the model is trained on.
+            net_cfg (NetworkConfig): Network configuration.
+            train_cfg (TrainConfig): Training configuration.
+            all_rays (bool, optional): If True, renders all rays in the image; if False, renders a
+                randomized subset of rays. Defaults to True.
+        """
         super().__init__()
         self.model = model
         self.dataset = dataset
@@ -21,10 +38,26 @@ class Renderer:
 
         self.precrop = False
         self.all_rays = all_rays
-        # TODO: get this from self.model
-        self.device = device
+        self.device = self.model.device
 
-    def render(self, img, pose):
+    def render(
+        self: T,
+        img: TensorType['H', 'W', 3],
+        pose: TensorType[4, 4]
+    ) -> Tuple[TensorType[..., 3], TensorType[..., 3]]:
+        """Render a new image, given a camera pose.
+
+        Args:
+            img (TensorType['H', 'W', 3]): Ground truth image.
+            pose (TensorType[4, 4]): Input camera pose.
+
+        Returns:
+            tuple[rgb_map, target], where:
+                rgb_map (TensorType[..., 3]): Rendered RGB values.
+                target (TensorType[..., 3]): Ground truth RGB values.
+        """
+        # TODO: make "img" parameter optional
+
         # Generate rays
         precrop_frac, rays_bsize = None, None
         if self.precrop:

@@ -1,6 +1,6 @@
-from collections import namedtuple
 import functools
 import logging
+from pathlib import Path
 import sys
 from tabulate import tabulate
 from time import time
@@ -197,6 +197,30 @@ def parse_rgb(path):
 
 def print_memory_usage(msg, device=None, unit='MB'):
     print(msg, ': ', format_bytes(torch.cuda.memory_allocated(device), unit=unit))
+
+
+def prompt_bool(msg):
+    result = None
+    prompt_msg = msg + ' (Y/N) '
+
+    while result not in ['y', 'n']:
+        result = input(prompt_msg).lower()
+
+    return result == 'y'
+
+
+def rmtree(path: Path):
+    """Removes directory and all child paths recursively.
+
+    Args:
+        path (Path): Path to directory to be removed.
+    """
+    if path.is_file():
+        path.unlink()
+    else:
+        for child in path.iterdir():
+            rmtree(child)
+        path.rmdir()
 
 
 def to_device(old_dict: Dict[str, torch.Tensor], device: str):

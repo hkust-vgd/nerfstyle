@@ -1,16 +1,18 @@
 from __future__ import annotations
 import torch
 from torch import nn
-from typing import List
+from typing import List, TypeVar
 
 from config import NetworkConfig
 from networks.embedder import Embedder
 import utils
 
+T = TypeVar('T', bound='Nerf')
+
 
 class Nerf(nn.Module):
     def __init__(
-        self,
+        self: T,
         x_enc_counts: int,
         d_enc_counts: int,
         x_layers: int,
@@ -35,6 +37,7 @@ class Nerf(nn.Module):
         self.skip = skip
         self.activation = activation
         self.logger = utils.create_logger(__name__)
+        self.device = torch.device('cpu')
 
         self.x_embedder = self.get_embedder(x_enc_counts)
         self.d_embedder = self.get_embedder(d_enc_counts)
@@ -73,6 +76,13 @@ class Nerf(nn.Module):
     @staticmethod
     def get_linear(in_channels, out_channels):
         return nn.Linear(in_channels, out_channels)
+
+    def to(
+        self: T,
+        device: torch.device
+    ) -> T:
+        self.device = device
+        return super().to(device)
 
     def forward(self, pts, dirs, *args):
         # If additional arguments are provided, bind them to every linear layer

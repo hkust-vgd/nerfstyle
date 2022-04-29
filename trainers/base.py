@@ -1,17 +1,18 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+import sys
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
 import config
 from nerf_lib import nerf_lib
-from utils import create_logger
+import utils
 
 
 class Trainer(ABC):
     def __init__(self, name, args, nargs):
-        self.logger = create_logger(name)
+        self.logger = utils.create_logger(name)
         self.iter_ctr = 0
         self.time0 = 0
         self.time1 = 0
@@ -19,6 +20,21 @@ class Trainer(ABC):
         self.name = args.name
         self.log_dir: Path = Path('./runs') / self.name
         self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        if next(self.log_dir.iterdir(), None) is not None:
+            # log dir is not empty
+            if (args.ckpt_path is not None) and (Path(args.ckpt_path).parent == self.log_dir):
+                # loading from existing checkpoint in log dir
+                proceed = utils.prompt_bool(
+                    'Checkpoints beyond "{}" will be overwritten. Proceed?'.format(args.ckpt_path))
+            else:
+                proceed = utils.prompt_bool('Log directory not empty. Clean directory?')
+                if proceed:
+                    utils.rmtree(self.log_dir)
+                    self.log_dir.mkdir()
+
+            if not proceed:
+                sys.exit(1)
 
         # Parse args
         self.dataset_cfg, nargs = config.DatasetConfig.load_nargs(args.dataset_cfg, nargs=nargs)

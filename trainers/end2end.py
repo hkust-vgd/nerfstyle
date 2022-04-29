@@ -53,11 +53,9 @@ class End2EndTrainer(Trainer):
 
         # Initialize renderers
         self.train_renderer = Renderer(
-            self.model, self.train_set, self.net_cfg, self.train_cfg,
-            all_rays=False, device=self.device)
+            self.model, self.train_set, self.net_cfg, self.train_cfg, all_rays=False)
         self.test_renderer = Renderer(
-            self.model, self.test_set, self.net_cfg, self.train_cfg,
-            all_rays=True, device=self.device)
+            self.model, self.test_set, self.net_cfg, self.train_cfg, all_rays=True)
 
     @staticmethod
     def calc_loss(rendered, target):
