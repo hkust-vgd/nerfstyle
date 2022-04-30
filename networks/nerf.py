@@ -59,6 +59,7 @@ class Nerf(nn.Module):
         self.x2d_layer = self.get_linear(x_width, d_widths[0])
         self.a_layer = self.get_linear(x_width, 1)
         self.c_layer = self.get_linear(d_widths[-1], 3)
+        self.s_layer = self.get_linear(d_widths[-1], 3)
 
         activations_dict = {
             'sigmoid': nn.Sigmoid(),
@@ -108,7 +109,10 @@ class Nerf(nn.Module):
             out = self.actv(bind(layer)(out))
 
         c = torch.sigmoid(bind(self.c_layer)(out))
-        return c, a
+        s = torch.sigmoid(bind(self.s_layer)(out))
+
+        c_out = torch.concat((c, s), dim=-1)
+        return c_out, a
 
 
 class SingleNerf(Nerf):

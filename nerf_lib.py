@@ -1,6 +1,9 @@
 from pathlib import Path
+from anyio import run_async_from_thread
+import einops
 import numpy as np
 import torch
+import torch.nn.functional as F
 from einops import reduce
 from typing import List, Optional, Tuple
 from torch.utils.cpp_extension import load
@@ -47,37 +50,46 @@ class NerfLib:
 
     def generate_rays(
         self,
-        img: TensorType['H', 'W', 3],
+        img: TensorType[3, 'H', 'W'],
         pose: TensorType[4, 4],
         dataset: Dataset,
         precrop: Optional[float] = None,
-        bsize: Optional[int] = None
+        bsize: Optional[int] = None,
+        grid_dims: Optional[Tuple[int, int]] = None
     ) -> Tuple[TensorType['K', 3], RayBatch]:
         """Generate a batch of rays.
 
         Args:
-            img (TensorType['h', 'w', 3]): Ground truth image.
+            img (TensorType[3, 'H', 'W']): Ground truth image.
             pose (TensorType[4, 4]): Camera-to-world transformation matrix.
             dataset (Dataset): Dataset object.
             precrop (Optional[float]): Precrop factor; None if not specified.
-            bsize (Optional[int]): Size of ray batch. All rays are used if
-            not specified.
+            bsize (Optional[int]): Size of ray batch. All rays are used if not specified.
+            grid_dims (Optional[Tuple[int, int]]): Dimension of sampling grid. If None, the output
+                image dimensions are used.
 
         Returns:
             target (TensorType['K', 3]): Pixel values corresponding to rays.
-            rays (RayBatch): A batch of K rays.
+            rays (RayBatch): Batch of rays.
         """
 
         intr = dataset.intrinsics
         near, far = dataset.near, dataset.far
 
-        x_coords = np.arange(intr.w, dtype=np.float32)
-        y_coords = np.arange(intr.h, dtype=np.float32)
+        fh, fw = intr.h, intr.w
+        if grid_dims is not None:
+            fh, fw = grid_dims
+
+        x_coords = np.linspace(0, intr.w, num=2*fw+1, dtype=np.float32)[1::2]
+        y_coords = np.linspace(0, intr.h, num=2*fh+1, dtype=np.float32)[1::2]
+
         w, h = intr.w, intr.h
         dx, dy = 0, 0
         pose_r, pose_t = pose[:3, :3], pose[:3, 3]
 
         if precrop is not None:
+            # TODO: Verify if dims paramter work
+            assert grid_dims is None
             w, h = int(intr.w * precrop), int(intr.h * precrop)
             dx, dy = (intr.w - w) // 2, (intr.h - h) // 2
             x_coords, y_coords = x_coords[dx:dx+w], y_coords[dy:dy+h]
@@ -94,13 +106,16 @@ class NerfLib:
         rays_d = torch.einsum('ij, hwj -> hwi', pose_r, dirs)
 
         if bsize is None:
-            target = img.reshape((-1, 3))
+            img = F.interpolate(img.unsqueeze(0), size=(fh, fw)).squeeze(0)
+            target = einops.rearrange(img, 'c h w -> (h w) c')
             rays_d = rays_d.reshape((-1, 3))
         else:
+            # TODO: Verify if dims paramter work
+            assert grid_dims is None
             indices_1d = np.random.choice(np.arange(w * h), bsize, replace=False)
             indices_2d = (indices_1d // h, indices_1d % h)
             coords = (indices_2d[0] + dy, indices_2d[1] + dx)
-            target = img[coords]
+            target = img[:, coords].T
             rays_d = rays_d[indices_2d]
 
         rays = RayBatch(pose_t, rays_d, near, far)

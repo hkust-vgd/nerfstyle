@@ -85,6 +85,10 @@ class MultiNerf(Nerf):
         for idx, node in enumerate(nodes):
             single_std = node['model']
             for name, module in self.named_modules():
+                # NOTE: Current strategy: don't intialize s_layer
+                if (name + '.weight') not in single_std:
+                    continue
+
                 if isinstance(module, MultiLinear):
                     module.weight.data[idx] = single_std[name + '.weight']
                     module.bias.data[idx, 0] = single_std[name + '.bias']
@@ -165,9 +169,10 @@ class DynamicMultiNerf(MultiNerf):
             net_indices = torch.where(self.occ_map(pts), net_indices, -1)
             valid = torch.sum(net_indices < 0).item()
 
+        # TODO: fix hardcode
         if (valid == len(pts)):
-            rgbs = torch.zeros((len(pts), 3)).to(pts)
-            densities = torch.zeros((len(pts), 1)).to(pts)
+            rgbs = torch.zeros((len(pts), 6), device=self.device)
+            densities = torch.zeros((len(pts), 1), device=self.device)
             return rgbs, densities
 
         net_indices, order = torch.sort(net_indices)
@@ -177,8 +182,9 @@ class DynamicMultiNerf(MultiNerf):
         # Perform global-to-local mapping
         nerf_lib.global_to_local(sorted_pts[valid:], self.mid_pts, self.voxel_size, counts)
 
-        sorted_rgbs = torch.zeros((len(pts), 3)).to(sorted_pts)
-        sorted_densities = torch.zeros((len(pts), 1)).to(sorted_pts)
+        # TODO: fix hardcode
+        sorted_rgbs = torch.zeros((len(pts), 6), device=self.device)
+        sorted_densities = torch.zeros((len(pts), 1), device=self.device)
         sorted_rgbs[valid:], sorted_densities[valid:] = \
             super().forward(sorted_pts[valid:], sorted_dirs[valid:], counts)
 

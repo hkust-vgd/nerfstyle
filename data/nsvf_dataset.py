@@ -36,7 +36,7 @@ class NSVFDataset(BaseDataset):
         self.poses = np.stack([utils.load_matrix(path) for path in self.pose_paths], axis=0)
         self._alpha2white()
 
-        H, W = self.imgs.shape[1:3]
+        _, _, H, W = self.imgs.shape
         with open(intrinsics_path, 'r') as file:
             f, cx, cy, _ = map(float, file.readline().split())
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)

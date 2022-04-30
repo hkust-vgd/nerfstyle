@@ -29,8 +29,8 @@ class BaseDataset(Dataset, ABC):
         self.near, self.far = 0., 0.
 
     def _alpha2white(self):
-        assert self.imgs.shape[-1] == 4
-        rgb, alpha = self.imgs[..., :3], self.imgs[..., 3:]
+        assert self.imgs.shape[1] == 4
+        rgb, alpha = self.imgs[:, :3], self.imgs[:, 3:]
         self.imgs = rgb * alpha + (1 - alpha)
 
     def __getitem__(self, index):

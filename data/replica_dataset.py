@@ -51,7 +51,7 @@ class ReplicaDataset(BaseDataset):
         self.poses = np.einsum('ij, njk -> nik', self.pose_t, self.poses)
         self.poses = self.poses.astype(np.float32)
 
-        _, H, W, _ = self.imgs.shape
+        _, _, H, W = self.imgs.shape
         cx, cy = W // 2, H // 2
         f = focal_ratio * max(H, W)
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)

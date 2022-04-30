@@ -18,7 +18,8 @@ class Renderer:
         dataset: BaseDataset,
         net_cfg: NetworkConfig,
         train_cfg: TrainConfig,
-        all_rays: bool = True
+        all_rays: bool = True,
+        reduce_size: bool = False
     ) -> None:
         """NeRF renderer.
 
@@ -38,6 +39,7 @@ class Renderer:
 
         self.precrop = False
         self.all_rays = all_rays
+        self.reduce_size = reduce_size
         self.device = self.model.device
 
     def render(
@@ -65,8 +67,9 @@ class Renderer:
         if not self.all_rays:
             rays_bsize = self.train_cfg.num_rays_per_batch
 
+        grid_dims = (256, 256) if self.reduce_size else None
         target, rays = nerf_lib.generate_rays(
-            img, pose, self.dataset, precrop=precrop_frac, bsize=rays_bsize)
+            img, pose, self.dataset, precrop=precrop_frac, bsize=rays_bsize, grid_dims=grid_dims)
         dirs = rays.viewdirs()
 
         # Sample points
@@ -76,17 +79,23 @@ class Renderer:
         del pts, dirs
 
         # Evaluate model
-        rgbs = torch.empty((len(pts_flat), 3), device=self.device)
+        # TODO: fix hardcode
+        rgbs = torch.empty((len(pts_flat), 6), device=self.device)
         densities = torch.empty((len(pts_flat), 1), device=self.device)
         utils.batch_exec(self.model, rgbs, densities,
                          bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
-        rgbs = rgbs.reshape(*dists.shape, 3)
+        rgbs = rgbs.reshape(*dists.shape, 6)
         densities = densities.reshape(dists.shape)
         del pts_flat, dirs_flat
 
         # Integrate points
-        bg_color = torch.tensor(self.dataset.bg_color).to(self.device)
-        rgb_map = nerf_lib.integrate_points(dists, rgbs, densities, bg_color)
-        del dists, rgbs, densities
+        rgb_c, rgb_s = torch.split(rgbs, [3, 3], dim=-1)
+        del rgbs
 
-        return rgb_map, target
+        bg_color = torch.tensor(self.dataset.bg_color).to(self.device)
+        rgb_map = nerf_lib.integrate_points(dists, rgb_c, densities, bg_color)
+        style_map = nerf_lib.integrate_points(dists, rgb_s, densities, bg_color)
+        result_map = torch.concat([rgb_map, style_map], dim=-1)
+        del dists, rgb_c, rgb_s, densities
+
+        return result_map, target

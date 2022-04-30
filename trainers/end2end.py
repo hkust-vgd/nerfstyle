@@ -53,13 +53,16 @@ class End2EndTrainer(Trainer):
 
         # Initialize renderers
         self.train_renderer = Renderer(
-            self.model, self.train_set, self.net_cfg, self.train_cfg, all_rays=False)
+            self.model, self.train_set, self.net_cfg, self.train_cfg,
+            all_rays=True, reduce_size=True)
         self.test_renderer = Renderer(
-            self.model, self.test_set, self.net_cfg, self.train_cfg, all_rays=True)
+            self.model, self.test_set, self.net_cfg, self.train_cfg,
+            all_rays=True, reduce_size=False)
 
     @staticmethod
     def calc_loss(rendered, target):
-        mse_loss = torch.mean((rendered - target) ** 2)
+        rgb_c, rgb_s = torch.split(rendered, [3, 3], dim=-1)
+        mse_loss = torch.mean((rgb_c - target) ** 2)
         return mse_loss
 
     def print_status(self, loss, psnr):
@@ -131,8 +134,10 @@ class End2EndTrainer(Trainer):
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             img, pose = img.to(self.device), pose.to(self.device)
             rgb_map, _ = self.test_renderer.render(img, pose)
+            c_map, _ = torch.split(rgb_map, [3, 3], dim=-1)
 
-            rgb_output = einops.rearrange(rgb_map.reshape(img.shape), 'h w c -> c h w')
+            _, h, w = img.shape
+            rgb_output = einops.rearrange(c_map, '(h w) c -> c h w', h=h, w=w)
             save_path = img_dir / 'frame_{:03d}.png'.format(i)
             torchvision.utils.save_image(rgb_output, save_path)
 

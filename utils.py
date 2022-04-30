@@ -2,6 +2,7 @@ import functools
 import logging
 from pathlib import Path
 import sys
+import einops
 from tabulate import tabulate
 from time import time
 import traceback
@@ -192,7 +193,9 @@ def reshape(*tensors: torch.Tensor, shape: Tuple[int]) -> Tuple[torch.Tensor]:
 
 
 def parse_rgb(path):
-    return np.array(imageio.imread(path), dtype=np.float32) / 255.0
+    img_np = np.array(imageio.imread(path), dtype=np.float32) / 255.0
+    img_np = einops.rearrange(img_np, 'h w c -> c h w')
+    return img_np
 
 
 def print_memory_usage(msg, device=None, unit='MB'):
