@@ -1,9 +1,10 @@
 import time
+import einops
+import lpips
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torchvision
-import einops
 from tqdm import tqdm
 
 from data import get_dataset
@@ -59,10 +60,14 @@ class End2EndTrainer(Trainer):
             self.model, self.test_set, self.net_cfg, self.train_cfg,
             all_rays=True, reduce_size=False)
 
-    @staticmethod
-    def calc_loss(rendered, target):
+        # Intialize losses and style image
+        self.content_loss = lpips.LPIPS(net='vgg')
+
+    def calc_loss(self, rendered, target):
         rgb_c, rgb_s = torch.split(rendered, [3, 3], dim=-1)
         mse_loss = torch.mean((rgb_c - target) ** 2)
+        content_loss = self.content_loss(rgb_s, target)
+
         return mse_loss
 
     def print_status(self, loss, psnr):
