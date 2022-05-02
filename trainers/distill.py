@@ -14,8 +14,10 @@ from tqdm import tqdm
 from typeguard import typechecked
 
 from .base import Trainer
+from data import load_bbox
 from networks.nerf import Nerf, SingleNerf
 from networks.multi_nerf import StaticMultiNerf
+from occ_map import OccupancyGrid
 import utils
 
 
@@ -125,8 +127,30 @@ class DistillTrainer(Trainer):
         self.test_log_dir = self.log_dir / 'logs'
         self.test_log_dir.mkdir(parents=True, exist_ok=True)
         self.root_nodes = self._generate_nodes()
-        self.nodes_queue = NodeQueue(self.root_nodes)
+        self.logger.info('{:d} nodes generated'.format(len(self.root_nodes)))
+
+        self.nodes_queue = NodeQueue()
         self.trained_nodes = NodeQueue()
+
+        self.logger.info('Checking for empty nodes...')
+        if args.occ_map is not None:
+            occ_map = OccupancyGrid.load(args.occ_map, self.logger).to(self.device)
+            for node in tqdm(self.root_nodes):
+                pts = torch.tensor(np.stack([node.min_pt, node.max_pt]),
+                                   dtype=torch.float32, device=self.device)
+                indices = occ_map.pts_to_indices(pts)
+                start, end = indices.cpu().numpy()
+                subgrid = occ_map.grid[start[0]:end[0], start[1]:end[1], start[2]:end[2]]
+
+                if np.mean(subgrid) < self.train_cfg.distill.sparsity_check:
+                    self.trained_nodes.append(node)
+                else:
+                    self.nodes_queue.append(node)
+
+        active_count = len(self.nodes_queue)
+        self.logger.info('{:d} nodes identified as empty'.format(len(self.trained_nodes)))
+        self.logger.info('Training {:d} nodes in {:d} rounds'.format(
+            active_count, int(np.ceil(active_count / self.train_cfg.distill.nets_bsize))))
 
         # Load teacher model
         if args.teacher_ckpt_path is None:
@@ -139,9 +163,10 @@ class DistillTrainer(Trainer):
             ckpt = torch.load(ckpt_path)['model']
             self.teacher.load_state_dict(ckpt, strict=False)
 
-        _load(args.args.teacher_ckpt_path)
+        _load(args.teacher_ckpt_path)
         self.logger.info('Loaded teacher model ' + str(self.teacher))
 
+        # Initialize metrics
         self.losses = ['mse', 'mae', 'mape']
         self.metrics = self.losses + ['se_q99']
         self.metric_items = ['all', 'color', 'alpha']
@@ -156,9 +181,7 @@ class DistillTrainer(Trainer):
         self.best_losses = {}
 
     def _generate_nodes(self) -> List[Node]:
-        bbox_path = self.dataset_cfg.root_path / 'bbox.txt'
-        min_pt, max_pt = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
-
+        min_pt, max_pt = load_bbox(self.dataset_cfg)
         net_res = self.dataset_cfg.net_res
         log_dir = self.test_log_dir
 
@@ -235,7 +258,8 @@ class DistillTrainer(Trainer):
             node.log_init()
         self.num_nets = len(self.cur_nodes)
 
-        self.model = StaticMultiNerf.create_nerf(self.num_nets, self.net_cfg).to(self.device)
+        self.model = StaticMultiNerf.create_nerf(
+            self.num_nets, self.net_cfg, self.dataset_cfg).to(self.device)
         self.logger.info('Created student model ' + str(self.model))
         self.optim = torch.optim.Adam(
             self.model.parameters(), lr=self.train_cfg.initial_learning_rate)

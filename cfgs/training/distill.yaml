@@ -7,9 +7,10 @@ intervals:
 distill:
   alpha_dist: 0.0211
   init_data_bsize: 160000
-  nets_bsize: 512
+  nets_bsize: 1024
   quantile: 0.99
+  sparsity_check: 0.01
   test_bsize: 512
   test_samples_pnet: 20000
   train_bsize: 512
-  train_samples_pnet: 1000000
+  train_samples_pnet: 800000

@@ -41,7 +41,7 @@ class NSVFDataset(BaseDataset):
             f, cx, cy, _ = map(float, file.readline().split())
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-        self.bbox_min, self.bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+        self.bbox_min, self.bbox_max = load_bbox(bbox_path)
 
         # bbox_center = (bbox_min + bbox_max) / 2
         # pts = self.poses[:, :3, -1]
@@ -57,3 +57,7 @@ class NSVFDataset(BaseDataset):
     def __str__(self):
         desc = 'NSVF dataset \"{}\" with {:d} entries'
         return desc.format(self.root.stem, len(self))
+
+
+def load_bbox(bbox_path):
+    return utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)

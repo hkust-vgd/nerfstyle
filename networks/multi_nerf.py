@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from config import DatasetConfig, NetworkConfig
+from data import load_bbox
 from networks.embedder import Embedder, MultiEmbedder
 from networks.linears import MultiLinear, StaticMultiLinear, DynamicMultiLinear
 from nerf_lib import nerf_lib
@@ -37,8 +38,7 @@ class MultiNerf(Nerf):
         super().__init__(**nerf_params)
 
         # Register buffers for dynamic evaluation
-        bbox_path = dataset_cfg.root_path / 'bbox.txt'
-        self.global_min_pt, self.global_max_pt = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+        self.global_min_pt, self.global_max_pt = load_bbox(dataset_cfg)
         self.net_res = dataset_cfg.net_res
         self.mid_pts = np.empty((num_nets, 3))
         self.voxel_size, self.basis = None, None
