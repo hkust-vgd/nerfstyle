@@ -457,3 +457,7 @@ class DistillTrainer(Trainer):
             super().run()  # Run loop
             self.logger.info('{:d} / {:d} networks completed'.format(
                 len(self.trained_nodes), len(self.root_nodes)))
+
+            # Clear RAM memory
+            self.train_loader, self.test_loader = None, None
+            self.train_set, self.test_set = None, None
