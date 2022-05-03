@@ -85,13 +85,14 @@ class MultiNerf(Nerf):
         for idx, node in enumerate(nodes):
             single_std = node['model']
             for name, module in self.named_modules():
-                # NOTE: Current strategy: don't intialize s_layer
-                if (name + '.weight') not in single_std:
-                    continue
-
+                # NOTE: Current strategy: intialize s_layer with c_layer weights
                 if isinstance(module, MultiLinear):
-                    module.weight.data[idx] = single_std[name + '.weight']
-                    module.bias.data[idx, 0] = single_std[name + '.bias']
+                    single_name = name
+                    if name == 's_layer':
+                        single_name = 'c_layer'
+
+                    module.weight.data[idx] = single_std[single_name + '.weight']
+                    module.bias.data[idx, 0] = single_std[single_name + '.bias']
             min_pt = np.minimum(min_pt, node['min_pt'])
             max_pt = np.maximum(max_pt, node['max_pt'])
             self.mid_pts[idx] = (node['min_pt'] + node['max_pt']) / 2
