@@ -189,6 +189,12 @@ class TrainConfig(Config):
     rng_seed: int
     """Seed for NumPy / PyTorch randomized number generators."""
 
+    content_lambda: float
+    """Content loss multiplier."""
+
+    style_lambda: float
+    """Style loss multiplier."""
+
     default_path = 'cfgs/training/default.yaml'
 
 

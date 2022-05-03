@@ -1,13 +1,14 @@
 import time
 import einops
-import lpips
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torchvision
 from tqdm import tqdm
 
 from data import get_dataset
+from loss import FeatureExtractor, StyleLoss
 from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
 from renderer import Renderer
@@ -61,24 +62,49 @@ class End2EndTrainer(Trainer):
             all_rays=True, reduce_size=False)
 
         # Intialize losses and style image
-        self.content_loss = lpips.LPIPS(net='vgg')
+        self.fe = FeatureExtractor().to(self.device)
+        assert args.style_image is not None
+        style_image_np = utils.parse_rgb(args.style_image, size=(256, 256))
+        self.style_image = torch.tensor(style_image_np, device=self.device)
+        self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
 
     def calc_loss(self, rendered, target):
         rgb_c, rgb_s = torch.split(rendered, [3, 3], dim=-1)
         mse_loss = torch.mean((rgb_c - target) ** 2)
-        content_loss = self.content_loss(rgb_s, target)
 
-        return mse_loss
+        rgb_s_feats = self.fe(einops.rearrange(rgb_s, '(h w) c -> c h w', h=256, w=256))
+        target_feats = self.fe(einops.rearrange(target, '(h w) c -> c h w', h=256, w=256))
 
-    def print_status(self, loss, psnr):
+        content_loss = F.mse_loss(rgb_s_feats['layer3'], target_feats['layer3'])
+        style_loss = self.style_loss(rgb_s_feats)
+
+        content_loss *= self.train_cfg.content_lambda
+        style_loss *= self.train_cfg.style_lambda
+        total_loss = mse_loss + content_loss + style_loss
+
+        losses = {
+            'mse': mse_loss,
+            'content': content_loss,
+            'style': style_loss,
+            'total': total_loss
+        }
+        return losses
+
+    def print_status(self, losses, psnr):
         status_dict = {
-            'Loss': '{:.5f}'.format(loss.item()),
+            'MSE': '{:.5f}'.format(losses['mse'].item()),
+            'Content': '{:.5f}'.format(losses['content'].item()),
+            'Style': '{:.5f}'.format(losses['style'].item()),
+            'Total': '{:.5f}'.format(losses['total'].item()),
             'PSNR': '{:.5f}'.format(psnr.item())
         }
         super().print_status(status_dict)
 
-    def log_status(self, loss, psnr, cur_lr):
-        self.writer.add_scalar('train/loss', loss.item(), self.iter_ctr)
+    def log_status(self, losses, psnr, cur_lr):
+        self.writer.add_scalar('train/mse_loss', losses['mse'].item(), self.iter_ctr)
+        self.writer.add_scalar('train/content_loss', losses['content'].item(), self.iter_ctr)
+        self.writer.add_scalar('train/style_loss', losses['style'].item(), self.iter_ctr)
+        self.writer.add_scalar('train/total_loss', losses['total'].item(), self.iter_ctr)
         self.writer.add_scalar('train/psnr', psnr.item(), self.iter_ctr)
         self.writer.add_scalar('misc/iter_time', self.time1 - self.time0, self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
@@ -139,12 +165,15 @@ class End2EndTrainer(Trainer):
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             img, pose = img.to(self.device), pose.to(self.device)
             rgb_map, _ = self.test_renderer.render(img, pose)
-            c_map, _ = torch.split(rgb_map, [3, 3], dim=-1)
 
             _, h, w = img.shape
-            rgb_output = einops.rearrange(c_map, '(h w) c -> c h w', h=h, w=w)
-            save_path = img_dir / 'frame_{:03d}.png'.format(i)
-            torchvision.utils.save_image(rgb_output, save_path)
+            rgb_map = einops.rearrange(rgb_map, '(h w) c -> c h w', h=h, w=w)
+            c_map, s_map = torch.split(rgb_map, [3, 3], dim=0)
+
+            c_save_path = img_dir / 'frame_{:03d}.png'.format(i)
+            s_save_path = img_dir / 'style_{:03d}.png'.format(i)
+            torchvision.utils.save_image(c_map, c_save_path)
+            torchvision.utils.save_image(s_map, s_save_path)
 
     def run_iter(self):
         self.time0 = time.time()
@@ -154,11 +183,11 @@ class End2EndTrainer(Trainer):
         self.train_renderer.precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
         rgb_map, target = self.train_renderer.render(img, pose)
 
-        loss = self.calc_loss(rendered=rgb_map, target=target)
-        psnr = utils.compute_psnr(loss)
+        losses = self.calc_loss(rendered=rgb_map, target=target)
+        psnr = utils.compute_psnr(losses['mse'])
 
         self.optim.zero_grad()
-        loss.backward()
+        losses['total'].backward()
         self.optim.step()
 
         # Update counter after backprop
@@ -174,10 +203,10 @@ class End2EndTrainer(Trainer):
 
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
-            self.print_status(loss, psnr)
+            self.print_status(losses, psnr)
         if self.check_interval(self.train_cfg.intervals.test):
             self.test_networks()
         if self.check_interval(self.train_cfg.intervals.log):
-            self.log_status(loss, psnr, new_lr)
+            self.log_status(losses, psnr, new_lr)
         if self.check_interval(self.train_cfg.intervals.ckpt):
             self.save_ckpt()

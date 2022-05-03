@@ -2,17 +2,17 @@ import functools
 import logging
 from pathlib import Path
 import sys
-import einops
 from tabulate import tabulate
 from time import time
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import einops
 import numpy as np
+from PIL import Image
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-import imageio
 
 
 def batch(*tensors, bsize=1, progress=False):
@@ -192,8 +192,15 @@ def reshape(*tensors: torch.Tensor, shape: Tuple[int]) -> Tuple[torch.Tensor]:
     return tuple([t.reshape(shape) for t in tensors])
 
 
-def parse_rgb(path):
-    img_np = np.array(imageio.imread(path), dtype=np.float32) / 255.0
+def parse_rgb(
+    path: Union[str, Path],
+    size: Optional[Tuple[int, int]] = None
+) -> np.ndarray:
+    img = Image.open(path)
+    if size is not None:
+        img = img.resize(size)
+
+    img_np = np.array(img, dtype=np.float32) / 255.0
     img_np = einops.rearrange(img_np, 'h w c -> c h w')
     return img_np
 
