@@ -48,6 +48,14 @@ class OccupancyGrid(nn.Module):
         grid_obj = _load(path)
         return grid_obj
 
+    def pts_to_indices(
+        self,
+        pts: TensorType['batch_size', 3]
+    ) -> TensorType['batch_size', 3]:
+        indices = (pts - self.global_min_pt) / self.voxel_size
+        indices_long = torch.floor(indices).to(torch.long)
+        return indices_long
+
     def forward(
         self,
         pts: TensorType['batch_size', 3]
@@ -58,8 +66,7 @@ class OccupancyGrid(nn.Module):
             (pts < self.global_min_pt + epsilon)
         ]
         invalid = torch.any(torch.cat(invalid, dim=-1), dim=-1)  # (N, )
-        indices = (pts - self.global_min_pt) / self.voxel_size
-        indices = torch.sum(indices.to(torch.long) * self.basis, dim=-1)
+        indices = torch.sum(self.pts_to_indices(pts) * self.basis, dim=-1)
         indices[invalid] = -1
 
         out = self.grid_flat[indices]

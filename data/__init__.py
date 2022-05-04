@@ -19,3 +19,20 @@ def get_dataset(
     dataset = module_ctor(dataroot, split, skip)
 
     return dataset
+
+
+def load_bbox(
+    dataset_cfg: DatasetConfig,
+    bbox_fn: str = 'bbox.txt'
+):
+    dataset_type = dataset_cfg.type
+    bbox_path = dataset_cfg.root_path / bbox_fn
+
+    module_name = 'data.{}_dataset'.format(dataset_type.lower())
+    loader_fn_name = 'load_bbox'
+
+    module = importlib.import_module(module_name)
+    module_loader = getattr(module, loader_fn_name)
+    bbox = module_loader(bbox_path)
+
+    return bbox

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 import einops
+from importlib_metadata import pathlib
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -14,8 +15,10 @@ from tqdm import tqdm
 from typeguard import typechecked
 
 from .base import Trainer
+from data import load_bbox
 from networks.nerf import Nerf, SingleNerf
 from networks.multi_nerf import StaticMultiNerf
+from occ_map import OccupancyGrid
 import utils
 
 
@@ -28,14 +31,15 @@ class Node:
         idx: str,
         min_pt: List[float],
         max_pt: List[float],
-        log_dir: Path
+        log_path: Path
     ) -> None:
         self.idx = idx
         self.min_pt, self.max_pt = np.array(min_pt), np.array(max_pt)
         self.net: Optional[Nerf] = None
-        # self.leq_child: Optional[Node] = None
-        # self.gt_child: Optional[Node] = None
-        self.log_path = log_dir / 'node_{}.log'.format(idx)
+
+        self.log_path = log_path
+        if log_path.is_dir():
+            self.log_path /= 'node_{}.log'.format(idx)
 
     def log_init(self):
         with open(self.log_path, 'w') as f:
@@ -47,7 +51,7 @@ class Node:
         with open(self.log_path, 'a') as f:
             f.write(msg + '\n')
 
-    def export_ckpt(self):
+    def export_ckpt(self) -> dict:
         ckpt = {
             'idx': self.idx,
             'min_pt': self.min_pt,
@@ -58,6 +62,28 @@ class Node:
         if ckpt['started']:
             ckpt['model'] = self.net.state_dict()
         return ckpt
+
+    @classmethod
+    def load_ckpt(cls, ckpt: dict):
+        node = Node(
+            idx=ckpt['idx'], min_pt=ckpt['min_pt'], max_pt=ckpt['max_pt'],
+            log_path=Path(ckpt['log_path'])
+        )
+
+        if ckpt['started']:
+            # TODO: Store nerf_config to remove hard code
+            nerf_config = {
+                'x_enc_counts': 10,
+                'd_enc_counts': 4,
+                'x_layers': 2,
+                'x_width': 32,
+                'd_widths': [32, 32],
+                'activation': 'relu'
+            }
+            node.net = SingleNerf(**nerf_config)
+            node.net.load_state_dict(ckpt['model'])
+
+        return node
 
 
 class NodeQueue(deque):
@@ -125,8 +151,45 @@ class DistillTrainer(Trainer):
         self.test_log_dir = self.log_dir / 'logs'
         self.test_log_dir.mkdir(parents=True, exist_ok=True)
         self.root_nodes = self._generate_nodes()
-        self.nodes_queue = NodeQueue(self.root_nodes)
+        self.logger.info('{:d} nodes generated'.format(len(self.root_nodes)))
+
+        self.nodes_queue = NodeQueue()
         self.trained_nodes = NodeQueue()
+
+        self.round_ctr = 0
+
+        # Entities initialized when training new batch of nodes
+        self.num_nets = 0
+        self.cur_nodes = []
+        self.model, self.optim = None, None
+        self.train_set, self.test_set = None, None
+        self.train_loader, self.test_loader = None, None
+        self.best_losses = {}
+
+        # Load checkpoint if provided
+        if args.ckpt_path is None:
+            # Initialize node queues
+            self.logger.info('Checking for empty nodes...')
+            if args.occ_map is not None:
+                occ_map = OccupancyGrid.load(args.occ_map, self.logger).to(self.device)
+                for node in tqdm(self.root_nodes):
+                    pts = torch.tensor(np.stack([node.min_pt, node.max_pt]),
+                                       dtype=torch.float32, device=self.device)
+                    indices = occ_map.pts_to_indices(pts)
+                    start, end = indices.cpu().numpy()
+                    subgrid = occ_map.grid[start[0]:end[0], start[1]:end[1], start[2]:end[2]]
+
+                    if np.mean(subgrid) < self.train_cfg.distill.sparsity_check:
+                        self.trained_nodes.append(node)
+                    else:
+                        self.nodes_queue.append(node)
+
+            active_count = len(self.nodes_queue)
+            self.logger.info('{:d} nodes identified as empty'.format(len(self.trained_nodes)))
+            self.logger.info('Training {:d} nodes in {:d} rounds'.format(
+                active_count, int(np.ceil(active_count / self.train_cfg.distill.nets_bsize))))
+        else:
+            self.load_ckpt(args.ckpt_path)
 
         # Load teacher model
         if args.teacher_ckpt_path is None:
@@ -139,26 +202,16 @@ class DistillTrainer(Trainer):
             ckpt = torch.load(ckpt_path)['model']
             self.teacher.load_state_dict(ckpt, strict=False)
 
-        _load(args.args.teacher_ckpt_path)
+        _load(args.teacher_ckpt_path)
         self.logger.info('Loaded teacher model ' + str(self.teacher))
 
+        # Initialize metrics
         self.losses = ['mse', 'mae', 'mape']
         self.metrics = self.losses + ['se_q99']
         self.metric_items = ['all', 'color', 'alpha']
-        self.round_ctr = 0
-
-        # Entities initialized when training new batch of nodes
-        self.num_nets = 0
-        self.cur_nodes = []
-        self.model, self.optim = None, None
-        self.train_set, self.test_set = None, None
-        self.train_loader = None
-        self.best_losses = {}
 
     def _generate_nodes(self) -> List[Node]:
-        bbox_path = self.dataset_cfg.root_path / 'bbox.txt'
-        min_pt, max_pt = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
-
+        min_pt, max_pt = load_bbox(self.dataset_cfg)
         net_res = self.dataset_cfg.net_res
         log_dir = self.test_log_dir
 
@@ -334,6 +387,25 @@ class DistillTrainer(Trainer):
         }
         super().print_status(status_dict)
 
+    def load_ckpt(self, ckpt_path):
+        @utils.loader(self.logger)
+        def _load(ckpt_path):
+            ckpt = torch.load(ckpt_path)
+            if ckpt['iter'] != self.train_cfg.num_iterations:
+                raise NotImplementedError('Restarting from middle of round is not yet implemented')
+
+            self.round_ctr = ckpt['round']
+
+            assert len(ckpt['trained']) + len(ckpt['empty']) == len(self.root_nodes)
+            for node_dict in ckpt['trained']:
+                self.trained_nodes.append(Node.load_ckpt(node_dict))
+            for node_dict in ckpt['empty']:
+                self.nodes_queue.append(Node.load_ckpt(node_dict))
+
+        _load(ckpt_path)
+        self.logger.info('Loaded checkpoint \"{}\"'.format(ckpt_path))
+        self.logger.info('Model now at end of round #{:d}'.format(self.round_ctr))
+
     def save_ckpt(self):
         self.logger.info('Extracting networks...')
         for i in tqdm(range(self.num_nets)):
@@ -433,3 +505,7 @@ class DistillTrainer(Trainer):
             super().run()  # Run loop
             self.logger.info('{:d} / {:d} networks completed'.format(
                 len(self.trained_nodes), len(self.root_nodes)))
+
+            # Clear existing datasets memory before creating new datasets
+            self.train_loader, self.test_loader = None, None
+            self.train_set, self.test_set = None, None

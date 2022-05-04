@@ -64,3 +64,9 @@ class ReplicaDataset(BaseDataset):
     def __str__(self):
         desc = 'Replica dataset \"{}\" with {:d} entries'
         return desc.format(self.root.stem, len(self))
+
+
+def load_bbox(bbox_path):
+    bbox_coords = utils.load_matrix(bbox_path)
+    bbox_min, bbox_max = np.min(bbox_coords, axis=0), np.max(bbox_coords, axis=0)
+    return bbox_min, bbox_max

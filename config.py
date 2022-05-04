@@ -172,6 +172,10 @@ class TrainConfig(Config):
         quantile: float
         """Quantile to use during metric evaluation."""
 
+        sparsity_check: float
+        """Nodes with an occupied volume less than this percentage will be treated as empty, i.e.
+           no subnetwork will be trained. Used in conjunction with an occupancy map only."""
+
         test_bsize: int
         """Batch size of points when evaluating all subnetworks."""
 
