@@ -288,8 +288,7 @@ class DistillTrainer(Trainer):
             node.log_init()
         self.num_nets = len(self.cur_nodes)
 
-        self.model = StaticMultiNerf.create_nerf(
-            self.num_nets, self.net_cfg, self.dataset_cfg).to(self.device)
+        self.model = StaticMultiNerf.create_nerf(self.num_nets, self.net_cfg).to(self.device)
         self.logger.info('Created student model ' + str(self.model))
         self.optim = torch.optim.Adam(
             self.model.parameters(), lr=self.train_cfg.initial_learning_rate)

@@ -53,7 +53,7 @@ class OccupancyGrid(nn.Module):
         pts: TensorType['batch_size', 3]
     ) -> TensorType['batch_size', 3]:
         indices = (pts - self.global_min_pt) / self.voxel_size
-        indices_long = torch.round(indices).to(torch.long)
+        indices_long = torch.floor(indices).to(torch.long)
         return indices_long
 
     def forward(
