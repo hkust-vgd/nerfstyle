@@ -15,7 +15,7 @@ def gram_mtx(
     c, h, w = feats.shape
     flat_feats = feats.view(c, h * w)
     gram_mtx = torch.mm(flat_feats, flat_feats.t())
-    return gram_mtx.div(c * h * w)
+    return gram_mtx.div(h * w)
 
 
 class FeatureExtractor(nn.Module):
