@@ -102,6 +102,26 @@ class DatasetConfig(Config):
     net_res: tuple
     """Local NeRF grid resolution for each dimension."""
 
+    @dataclass
+    class ReplicaConfig:
+        name: str
+        """Name of scene."""
+
+        near: float
+        """Near plane distance for sampling."""
+
+        far: float
+        """Far plane distance for sampling."""
+
+        focal_ratio: float
+        """Set focal length to frame side length times this value."""
+
+        traj_ids: List[int]
+        """Trajectory ids that belong to this scene."""
+
+    replica_cfg: Optional[ReplicaConfig]
+    """Additional config settings for Replica dataset."""
+
 
 @dataclass
 class NetworkConfig(Config):
@@ -146,6 +166,9 @@ class TrainConfig(Config):
 
     num_iterations: int
     """No. of total iterations for training."""
+
+    test_skip: int
+    """Render the test image once every N frames, to save time."""
 
     @dataclass
     class TrainIntervalConfig:

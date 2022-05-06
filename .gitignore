@@ -3,5 +3,6 @@
 .ipynb_checkpoints
 runs
 __pycache__
+*.ipynb
 sync_super.sh
 style_images

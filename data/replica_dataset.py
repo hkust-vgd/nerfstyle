@@ -9,10 +9,18 @@ import utils
 class ReplicaDataset(BaseDataset):
     def __init__(self, *args):
         super().__init__(*args)
+        assert self.cfg.replica_cfg is not None
 
-        self.rgb_paths = sorted(self.root.glob('*_rgb.png'))
-        self.camera_path = self.root / 'cameras.json'
-        focal_ratio = 0.5
+        self.rgb_paths = []
+        self.cameras = []
+
+        for traj in self.cfg.replica_cfg.traj_ids:
+            subdir = self.cfg.root_path / '{:02d}'.format(traj)
+            self.rgb_paths += sorted(subdir.glob('*_rgb.png'))
+
+            with open(subdir / 'cameras.json', 'r') as f:
+                traj_cameras = json.load(f)
+            self.cameras += traj_cameras
 
         self.camera_t = np.array([
             [1, 0, 0],
@@ -21,14 +29,11 @@ class ReplicaDataset(BaseDataset):
         ])
 
         self.pose_t = np.array([
-            [0, 0, 1, 0],
             [1, 0, 0, 0],
+            [0, 0, -1, 0],
             [0, 1, 0, 0],
             [0, 0, 0, 1]
         ])
-
-        with open(self.camera_path) as f:
-            self.cameras = json.load(f)
 
         assert len(self.rgb_paths) == len(self.cameras)
 
@@ -53,17 +58,16 @@ class ReplicaDataset(BaseDataset):
 
         _, H, W, _ = self.imgs.shape
         cx, cy = W // 2, H // 2
-        f = focal_ratio * max(H, W)
+        f = self.cfg.replica_cfg.focal_ratio * max(H, W)
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-        # Use hard coded values for now
-        self.near = 0.5
-        self.far = 8.0
-        self.bg_color = np.ones(3, dtype=np.float32)
+        self.near = self.cfg.replica_cfg.near
+        self.far = self.cfg.replica_cfg.far
+        self.bg_color = np.zeros(3, dtype=np.float32)  # Black
 
     def __str__(self):
         desc = 'Replica dataset \"{}\" with {:d} entries'
-        return desc.format(self.root.stem, len(self))
+        return desc.format(self.cfg.replica_cfg.name, len(self))
 
 
 def load_bbox(bbox_path):
