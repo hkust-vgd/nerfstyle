@@ -53,8 +53,6 @@ class NSVFDataset(BaseDataset):
 
         self.near, self.far = utils.load_matrix(nf_path)[0]
 
-        self.bg_color = np.ones(3, dtype=np.float32)
-
     def __str__(self):
         name = self.cfg.root_path.stem
         desc = 'NSVF dataset \"{}\" with {:d} entries'

@@ -44,6 +44,10 @@ class ReplicaDataset(BaseDataset):
         self.poses = np.stack([camera['Rt'] for camera in self.cameras])
         self._alpha2white()
 
+        if self.cfg.replica_cfg.black2white:
+            mask = np.all(self.imgs <= 0., axis=-1, keepdims=True)
+            self.imgs = np.where(mask, 1., self.imgs)
+
         if self.skip > 1:
             self.poses = self.poses[::self.skip]
 
@@ -63,7 +67,6 @@ class ReplicaDataset(BaseDataset):
 
         self.near = self.cfg.replica_cfg.near
         self.far = self.cfg.replica_cfg.far
-        self.bg_color = np.zeros(3, dtype=np.float32)  # Black
 
     def __str__(self):
         desc = 'Replica dataset \"{}\" with {:d} entries'

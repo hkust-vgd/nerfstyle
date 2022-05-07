@@ -40,6 +40,9 @@ class Renderer:
         self.all_rays = all_rays
         self.device = self.model.device
 
+        # Set BG color as white
+        self.bg_color = torch.ones(3, device='cuda')
+
     def render(
         self: T,
         img: TensorType['H', 'W', 3],
@@ -85,7 +88,7 @@ class Renderer:
         del pts_flat, dirs_flat
 
         # Integrate points
-        bg_color = torch.tensor(self.dataset.bg_color).to(self.device)
+        bg_color = torch.tensor(self.bg_color).to(self.device)
         rgb_map = nerf_lib.integrate_points(dists, rgbs, densities, bg_color)
         del dists, rgbs, densities
 

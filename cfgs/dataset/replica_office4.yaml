@@ -14,3 +14,4 @@ replica_cfg:
   far: 8.0
   focal_ratio: 0.5
   traj_ids: [33, 42, 43]
+  black2white: false

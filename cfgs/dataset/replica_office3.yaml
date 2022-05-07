@@ -9,9 +9,9 @@ net_res:
 - 42
 - 23
 replica_cfg:
-  name: room1
+  name: office2
   near: 0.5
-  far: 6.8
+  far: 8.75
   focal_ratio: 0.5
-  traj_ids: [19, 21, 32, 34, 61, 62, 63, 66, 70]
-  black2white: false
+  traj_ids: [7, 8, 12, 41, 45, 49, 52, 53, 56, 58, 67, 68, 69, 71, 75]
+  black2white: true

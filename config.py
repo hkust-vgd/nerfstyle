@@ -119,6 +119,9 @@ class DatasetConfig(Config):
         traj_ids: List[int]
         """Trajectory ids that belong to this scene."""
 
+        black2white: bool
+        """Convert black (0, 0, 0) pixels into white."""
+
     replica_cfg: Optional[ReplicaConfig]
     """Additional config settings for Replica dataset."""
 
