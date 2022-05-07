@@ -22,9 +22,7 @@ def main():
     dataset_cfg = DatasetConfig.load(args.dataset_cfg)
     grid_cfg = OccupancyGridConfig.load()
 
-    bbox_path = dataset_cfg.root_path / 'bbox.txt'
-    bbox_coords = utils.load_matrix(bbox_path) if dataset_cfg.type == 'Replica' else None
-    bbox_min, bbox_max = load_bbox(dataset_cfg)
+    bbox_min, bbox_max, bbox_coords = load_bbox(dataset_cfg)
 
     save_path = Path(args.weights_path).parent / args.save_name
 

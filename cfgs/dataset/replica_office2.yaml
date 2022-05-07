@@ -1,4 +1,4 @@
-root_path: ~/datasets/replica_all/train/
+root_path: ~/datasets/replica_all/
 type: Replica
 grid_res:
 - 384

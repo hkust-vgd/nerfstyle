@@ -1,8 +1,9 @@
 import json
 import numpy as np
 
-from data.base_dataset import BaseDataset
 from common import Intrinsics
+from config import DatasetConfig
+from data.base_dataset import BaseDataset
 import utils
 
 
@@ -15,7 +16,7 @@ class ReplicaDataset(BaseDataset):
         self.cameras = []
 
         for traj in self.cfg.replica_cfg.traj_ids:
-            subdir = self.cfg.root_path / '{:02d}'.format(traj)
+            subdir = self.cfg.root_path / 'train' / '{:02d}'.format(traj)
             self.rgb_paths += sorted(subdir.glob('*_rgb.png'))
 
             with open(subdir / 'cameras.json', 'r') as f:
@@ -73,7 +74,8 @@ class ReplicaDataset(BaseDataset):
         return desc.format(self.cfg.replica_cfg.name, len(self))
 
 
-def load_bbox(bbox_path):
+def load_bbox(dataset_cfg: DatasetConfig):
+    bbox_path = dataset_cfg.root_path / 'bboxes' / '{}.txt'.format(dataset_cfg.replica_cfg.name)
     bbox_coords = utils.load_matrix(bbox_path)
     bbox_min, bbox_max = np.min(bbox_coords, axis=0), np.max(bbox_coords, axis=0)
-    return bbox_min, bbox_max
+    return bbox_min, bbox_max, bbox_coords

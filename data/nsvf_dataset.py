@@ -2,8 +2,9 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 
-from data.base_dataset import BaseDataset
 from common import Intrinsics
+from config import DatasetConfig
+from data.base_dataset import BaseDataset
 import utils
 
 
@@ -20,7 +21,6 @@ class NSVFDataset(BaseDataset):
         rgb_dir = root / 'rgb'
         pose_dir = root / 'pose'
         intrinsics_path = root / 'intrinsics.txt'
-        bbox_path = root / 'bbox.txt'
         nf_path = root / 'near_and_far.txt'
 
         split_prefix = {'train': 0, 'val': 1, 'test': 2}
@@ -42,7 +42,7 @@ class NSVFDataset(BaseDataset):
             f, cx, cy, _ = map(float, file.readline().split())
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-        self.bbox_min, self.bbox_max = load_bbox(bbox_path)
+        self.bbox_min, self.bbox_max, _ = load_bbox(self.cfg)
 
         # bbox_center = (bbox_min + bbox_max) / 2
         # pts = self.poses[:, :3, -1]
@@ -59,5 +59,7 @@ class NSVFDataset(BaseDataset):
         return desc.format(name, len(self))
 
 
-def load_bbox(bbox_path):
-    return utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+def load_bbox(dataset_cfg: DatasetConfig):
+    bbox_path = dataset_cfg.root_path / 'bbox.txt'
+    bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+    return bbox_min, bbox_max, None

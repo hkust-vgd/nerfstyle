@@ -211,7 +211,7 @@ class DistillTrainer(Trainer):
         self.metric_items = ['all', 'color', 'alpha']
 
     def _generate_nodes(self) -> List[Node]:
-        min_pt, max_pt = load_bbox(self.dataset_cfg)
+        min_pt, max_pt, _ = load_bbox(self.dataset_cfg)
         net_res = self.dataset_cfg.net_res
         log_dir = self.test_log_dir
 
