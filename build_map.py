@@ -14,7 +14,9 @@ def main():
     parser.add_argument('dataset_cfg')
     parser.add_argument('weights_path')
     parser.add_argument('--save_name', default='occupancy_grid.npz')
+    parser.add_argument('--bbox_filter', action='store_true')
     args = parser.parse_args()
+
     device = torch.device('cuda:0')
     logger = utils.create_logger(__name__)
 
@@ -42,7 +44,8 @@ def main():
 
     # Filter positions outside tilted bbox
     in_bbox_grid = None
-    if bbox_coords is not None:
+    if args.bbox_filter:
+        assert bbox_coords is not None, 'Dataset type does not support box filter'
         midpoints = (top_left_samples + (voxel_size / 2)).float()
 
         # Top face clockwise: 0-3, Bottom face clockwise: 4-7

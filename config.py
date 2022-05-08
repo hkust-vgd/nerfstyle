@@ -122,6 +122,9 @@ class DatasetConfig(Config):
         black2white: bool
         """Convert black (0, 0, 0) pixels into white."""
 
+        scale_factor: float
+        """Scale the bounding box by this value to allow greater tolerance."""
+
     replica_cfg: Optional[ReplicaConfig]
     """Additional config settings for Replica dataset."""
 

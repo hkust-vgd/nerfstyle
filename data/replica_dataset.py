@@ -75,7 +75,15 @@ class ReplicaDataset(BaseDataset):
 
 
 def load_bbox(dataset_cfg: DatasetConfig):
+    assert dataset_cfg.replica_cfg is not None
     bbox_path = dataset_cfg.root_path / 'bboxes' / '{}.txt'.format(dataset_cfg.replica_cfg.name)
     bbox_coords = utils.load_matrix(bbox_path)
     bbox_min, bbox_max = np.min(bbox_coords, axis=0), np.max(bbox_coords, axis=0)
+
+    scale_factor = dataset_cfg.replica_cfg.scale_factor
+    if scale_factor > 1.0:
+        bbox_midpt = (bbox_min + bbox_max) / 2
+        bbox_coords = (bbox_coords - bbox_midpt) * scale_factor + bbox_midpt
+        bbox_min, bbox_max = np.min(bbox_coords, axis=0), np.max(bbox_coords, axis=0)
+
     return bbox_min, bbox_max, bbox_coords

@@ -21,7 +21,7 @@ def get_dataset(
 
 
 def load_bbox(
-    dataset_cfg: DatasetConfig,
+    dataset_cfg: DatasetConfig
 ):
     dataset_type = dataset_cfg.type
     module_name = 'data.{}_dataset'.format(dataset_type.lower())
