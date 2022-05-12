@@ -10,5 +10,6 @@ intervals:
   print: 100
   log: 100
   ckpt: 10000
-  test: 10000
+  test: 5000
 rng_seed: 69420
+bbox_lambda: 0

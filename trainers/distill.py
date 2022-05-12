@@ -15,10 +15,10 @@ from tqdm import tqdm
 from typeguard import typechecked
 
 from .base import Trainer
+from common import OccupancyGrid
 from data import load_bbox
 from networks.nerf import Nerf, SingleNerf
 from networks.multi_nerf import StaticMultiNerf
-from occ_map import OccupancyGrid
 import utils
 
 

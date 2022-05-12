@@ -1,16 +1,14 @@
 from __future__ import annotations
-from re import A
 from typing import Optional
 import numpy as np
 import torch
 
+from common import OccupancyGrid
 from config import DatasetConfig, NetworkConfig
 from data import load_bbox
 from networks.embedder import Embedder, MultiEmbedder
 from networks.linears import MultiLinear, StaticMultiLinear, DynamicMultiLinear
 from nerf_lib import nerf_lib
-from occ_map import OccupancyGrid
-import utils
 from .nerf import Nerf
 
 

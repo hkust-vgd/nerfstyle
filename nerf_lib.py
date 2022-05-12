@@ -1,3 +1,4 @@
+from optparse import Option
 from pathlib import Path
 import numpy as np
 import torch
@@ -47,29 +48,30 @@ class NerfLib:
 
     def generate_rays(
         self,
-        img: TensorType['H', 'W', 3],
         pose: TensorType[4, 4],
         dataset: Dataset,
+        img: Optional[TensorType['H', 'W', 3]] = None,
         precrop: Optional[float] = None,
         bsize: Optional[int] = None
-    ) -> Tuple[TensorType['K', 3], RayBatch]:
+    ) -> Tuple[RayBatch, Optional[TensorType['K', 3]]]:
         """Generate a batch of rays.
 
         Args:
-            img (TensorType['h', 'w', 3]): Ground truth image.
             pose (TensorType[4, 4]): Camera-to-world transformation matrix.
             dataset (Dataset): Dataset object.
+            img (Optional[TensorType['h', 'w', 3]]): Ground truth image.
             precrop (Optional[float]): Precrop factor; None if not specified.
             bsize (Optional[int]): Size of ray batch. All rays are used if
             not specified.
 
         Returns:
-            target (TensorType['K', 3]): Pixel values corresponding to rays.
             rays (RayBatch): A batch of K rays.
+            target (TensorType['K', 3]): Pixel values corresponding to rays.
         """
 
         intr = dataset.intrinsics
         near, far = dataset.near, dataset.far
+        target = None
 
         x_coords = np.arange(intr.w, dtype=np.float32)
         y_coords = np.arange(intr.h, dtype=np.float32)
@@ -94,17 +96,19 @@ class NerfLib:
         rays_d = torch.einsum('ij, hwj -> hwi', pose_r, dirs)
 
         if bsize is None:
-            target = img.reshape((-1, 3))
             rays_d = rays_d.reshape((-1, 3))
+            if img is not None:
+                target = img.reshape((-1, 3))
         else:
             indices_1d = np.random.choice(np.arange(w * h), bsize, replace=False)
             indices_2d = (indices_1d // h, indices_1d % h)
             coords = (indices_2d[0] + dy, indices_2d[1] + dx)
-            target = img[coords]
             rays_d = rays_d[indices_2d]
+            if img is not None:
+                target = img[coords]
 
         rays = RayBatch(pose_t, rays_d, near, far)
-        return target, rays
+        return rays, target
 
     def sample_points(
         self,

@@ -222,6 +222,9 @@ class TrainConfig(Config):
     rng_seed: int
     """Seed for NumPy / PyTorch randomized number generators."""
 
+    bbox_lambda: float
+    """Bounding box loss multiplier."""
+
     default_path = 'cfgs/training/default.yaml'
 
 
