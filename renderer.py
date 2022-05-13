@@ -101,7 +101,7 @@ class Renderer:
         del pts_flat, dirs_flat
 
         # Integrate points
-        bg_color = torch.tensor(self.bg_color).to(self.device)
+        bg_color = torch.tensor(self.bg_color, device=self.device)
         output['rgb_map'] = nerf_lib.integrate_points(dists, rgbs, densities, bg_color)
 
         output['rgbs'] = rgbs if 'rgbs' in ret_flags else None

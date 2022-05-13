@@ -76,7 +76,7 @@ def main():
     def compute_occupancy_batch(voxels_batch):
         voxels_batch = voxels_batch.to(device)
         out = model(voxels_batch.reshape(-1, 3), None)
-        out = out.reshape(grid_cfg.voxel_bsize, points_per_voxel)
+        out = out.reshape(-1, points_per_voxel)
         return torch.any(out > grid_cfg.threshold, dim=1)
     utils.batch_exec(compute_occupancy_batch, vals,
                      bsize=grid_cfg.voxel_bsize, progress=True)(all_samples)
