@@ -59,7 +59,13 @@ class NSVFDataset(BaseDataset):
         return desc.format(name, len(self))
 
 
-def load_bbox(dataset_cfg: DatasetConfig):
-    bbox_path = dataset_cfg.root_path / 'bbox.txt'
-    bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
-    return bbox_min, bbox_max, None
+def load_bbox(
+    dataset_cfg: DatasetConfig,
+    scale_box: bool = True
+):
+    # TODO: Implement bbox object
+
+    # bbox_path = dataset_cfg.root_path / 'bbox.txt'
+    # bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+    # return bbox_min, bbox_max, None
+    raise NotImplementedError

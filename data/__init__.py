@@ -1,5 +1,6 @@
 import importlib
 from config import DatasetConfig
+from common import RotatedBBox
 from data.base_dataset import BaseDataset
 
 
@@ -21,14 +22,15 @@ def get_dataset(
 
 
 def load_bbox(
-    dataset_cfg: DatasetConfig
-):
+    dataset_cfg: DatasetConfig,
+    scale_box: bool = True
+) -> RotatedBBox:
     dataset_type = dataset_cfg.type
     module_name = 'data.{}_dataset'.format(dataset_type.lower())
     loader_fn_name = 'load_bbox'
 
     module = importlib.import_module(module_name)
     module_loader = getattr(module, loader_fn_name)
-    bbox = module_loader(dataset_cfg)
+    bbox = module_loader(dataset_cfg, scale_box)
 
     return bbox

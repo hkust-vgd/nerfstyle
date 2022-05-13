@@ -8,7 +8,7 @@ import einops
 from tqdm import tqdm
 
 from common import RotatedBBox
-from data import get_dataset
+from data import get_dataset, load_bbox
 from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
 from renderer import Renderer
@@ -59,23 +59,25 @@ class End2EndTrainer(Trainer):
         self.test_renderer = Renderer(
             self.model, self.test_set, self.net_cfg, self.train_cfg, all_rays=True)
 
-        # TODO: Temp solution
-        bbox_path = self.dataset_cfg.root_path / 'bboxes' / '{}.txt'.format(
-            self.dataset_cfg.replica_cfg.name)
-        self.bbox = RotatedBBox(utils.load_matrix(bbox_path)).to(self.device)
+        # Load bbox if needed
+        self.bbox = None
+        if self.train_cfg.bbox_lambda > 0.0:
+            self.bbox = load_bbox(self.dataset_cfg, scale_box=False).to(self.device)
 
     def calc_loss(self, output: dict):
         rendered = output['rgb_map']
         target = output['target']
         assert target is not None
-        bbox_lambda = 0.0005
+        bbox_lambda = self.train_cfg.bbox_lambda
 
         mse_loss = torch.mean((rendered - target) ** 2)
 
         # Penalize positive densities outside bbox
-        bbox_mask = self.bbox(output['pts'], outside=True)
-        pos_densities = F.relu(output['densities'].reshape(-1))
-        bbox_loss = torch.mean(bbox_mask * pos_densities) * bbox_lambda
+        bbox_loss = 0.0
+        if bbox_lambda > 0.0:
+            bbox_mask = self.bbox(output['pts'], outside=True)
+            pos_densities = F.relu(output['densities'].reshape(-1))
+            bbox_loss = torch.mean(bbox_mask * pos_densities) * bbox_lambda
 
         total_loss = mse_loss + bbox_loss
 

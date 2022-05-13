@@ -211,12 +211,12 @@ class DistillTrainer(Trainer):
         self.metric_items = ['all', 'color', 'alpha']
 
     def _generate_nodes(self) -> List[Node]:
-        min_pt, max_pt, _ = load_bbox(self.dataset_cfg)
+        bbox = load_bbox(self.dataset_cfg)
         net_res = self.dataset_cfg.net_res
         log_dir = self.test_log_dir
 
         intervals = [np.linspace(start, end, num+1) for start, end, num in
-                     zip(min_pt, max_pt, net_res)]
+                     zip(bbox.min_pt, bbox.max_pt, net_res)]
 
         node_idx_fmt = '{{:0{}d}}_{{:0{}d}}_{{:0{}d}}'.format(*[len(str(dim)) for dim in net_res])
 

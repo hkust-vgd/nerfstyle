@@ -104,7 +104,8 @@ class DynamicMultiNerf(MultiNerf):
         self.occ_map = None
 
         # For dynamic evaluation
-        self.global_min_pt, self.global_max_pt, _ = load_bbox(dataset_cfg)
+        bbox = load_bbox(dataset_cfg)
+        self.global_min_pt, self.global_max_pt = bbox.min_pt, bbox.max_pt
         self.net_res = dataset_cfg.net_res
         self.mid_pts = np.empty((self.num_nets, 3))
         self.voxel_size, self.basis = None, None

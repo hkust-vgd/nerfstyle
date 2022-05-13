@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 import numpy as np
 import torch
-from torchtyping import TensorType
+from torchtyping import TensorType, patch_typeguard
+from typeguard import typechecked
 import utils
+
+patch_typeguard()
 
 
 @dataclass(frozen=True)
@@ -88,7 +91,8 @@ class TensorModule(torch.nn.Module):
 class RotatedBBox(TensorModule):
     def __init__(
         self,
-        pts: np.ndarray
+        pts: np.ndarray,
+        scale_factor: float = 1.0
     ) -> None:
         """
         A 3D dimensional bounding box.
@@ -103,6 +107,14 @@ class RotatedBBox(TensorModule):
         # Top face clockwise: v0 - v3, Bottom face clockwise: v4 - v7
         # v3 is on top of v4
         self.pts = pts
+        self.min_pt = np.min(self.pts, axis=0)
+        self.max_pt = np.max(self.pts, axis=0)
+
+        if scale_factor > 1.0:
+            midpt = (self.min_pt + self.max_pt) / 2
+            self.pts = (self.pts - midpt) * scale_factor + midpt
+            self.min_pt = np.min(self.pts, axis=0)
+            self.max_pt = np.max(self.pts, axis=0)
 
         # Identify 6 triangular reference faces on each side of bbox
         faces = np.array([
@@ -116,6 +128,7 @@ class RotatedBBox(TensorModule):
         self.origins = torch.tensor(pts0)
         self.normals = torch.tensor(normals)
 
+    @typechecked
     def forward(
         self,
         pts: TensorType['batch_size', 3],
