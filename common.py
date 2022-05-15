@@ -32,6 +32,18 @@ class Intrinsics:
 
 
 @dataclass
+class LossValue:
+    print_name: str
+    """Identifier when logging on console."""
+
+    log_name: str
+    """Identifier when logging on TensorBoard."""
+
+    value: torch.Tensor
+    """Loss tensor."""
+
+
+@dataclass
 class RayBatch:
     """A batch of N rays sharing a common origin point."""
 

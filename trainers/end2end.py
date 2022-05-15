@@ -1,4 +1,6 @@
 import time
+from typing import Dict
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -7,7 +9,7 @@ import torchvision
 import einops
 from tqdm import tqdm
 
-from common import RotatedBBox
+from common import LossValue
 from data import get_dataset, load_bbox
 from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
@@ -64,44 +66,45 @@ class End2EndTrainer(Trainer):
         if self.train_cfg.bbox_lambda > 0.0:
             self.bbox = load_bbox(self.dataset_cfg, scale_box=False).to(self.device)
 
-    def calc_loss(self, output: dict):
+    def calc_loss(self, output: Dict[str, torch.Tensor]):
         rendered = output['rgb_map']
         target = output['target']
         assert target is not None
-        bbox_lambda = self.train_cfg.bbox_lambda
 
         mse_loss = torch.mean((rendered - target) ** 2)
+        losses = {
+            'mse': LossValue('MSE', 'mse_loss', mse_loss),
+            'psnr': LossValue('PSNR', 'psnr', utils.compute_psnr(mse_loss))
+        }
 
         # Penalize positive densities outside bbox
-        bbox_loss = 0.0
-        if bbox_lambda > 0.0:
+        bbox_lambda = self.train_cfg.bbox_lambda
+        if bbox_lambda > 0.:
             bbox_mask = self.bbox(output['pts'], outside=True)
             pos_densities = F.relu(output['densities'].reshape(-1))
             bbox_loss = torch.mean(bbox_mask * pos_densities) * bbox_lambda
+            losses['bbox'] = LossValue('BBox', 'bbox_loss', bbox_loss)
 
-        total_loss = mse_loss + bbox_loss
+            total_loss = mse_loss + bbox_loss
+            losses['total'] = LossValue('Total', 'total_loss', total_loss)
 
-        losses = {
-            'mse': mse_loss,
-            'bbox': bbox_loss,
-            'total': total_loss
-        }
         return losses
 
-    def print_status(self, losses, psnr):
-        status_dict = {
-            'MSE': '{:.5f}'.format(losses['mse'].item()),
-            'BBox': '{:.5f}'.format(losses['bbox'].item()),
-            'Total': '{:.5f}'.format(losses['total'].item()),
-            'PSNR': '{:.5f}'.format(psnr.item())
-        }
+    def print_status(
+        self,
+        losses: Dict[str, LossValue]
+    ) -> None:
+        status_dict = {lv.print_name: '{:.5f}'.format(lv.value.item()) for lv in losses.values()}
         super().print_status(status_dict)
 
-    def log_status(self, losses, psnr, cur_lr):
-        self.writer.add_scalar('train/mse_loss', losses['mse'].item(), self.iter_ctr)
-        self.writer.add_scalar('train/bbox_loss', losses['bbox'].item(), self.iter_ctr)
-        self.writer.add_scalar('train/total_loss', losses['total'].item(), self.iter_ctr)
-        self.writer.add_scalar('train/psnr', psnr.item(), self.iter_ctr)
+    def log_status(
+        self,
+        losses: Dict[str, LossValue],
+        cur_lr: float
+    ) -> None:
+        for lv in losses.values():
+            self.writer.add_scalar('train/{}'.format(lv.log_name), lv.value.item(), self.iter_ctr)
+
         self.writer.add_scalar('misc/iter_time', self.time1 - self.time0, self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
 
@@ -176,10 +179,9 @@ class End2EndTrainer(Trainer):
         output = self.train_renderer.render(pose, img, ret_flags)
 
         losses = self.calc_loss(output)
-        psnr = utils.compute_psnr(losses['mse'])
-
         self.optim.zero_grad()
-        losses['total'].backward()
+        back_key = 'total' if 'total' in losses.keys() else 'mse'
+        losses[back_key].value.backward()
         self.optim.step()
 
         # Update counter after backprop
@@ -195,10 +197,10 @@ class End2EndTrainer(Trainer):
 
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
-            self.print_status(losses, psnr)
+            self.print_status(losses)
         if self.check_interval(self.train_cfg.intervals.test):
             self.test_networks()
         if self.check_interval(self.train_cfg.intervals.log):
-            self.log_status(losses, psnr, new_lr)
+            self.log_status(losses, new_lr)
         if self.check_interval(self.train_cfg.intervals.ckpt):
             self.save_ckpt()
