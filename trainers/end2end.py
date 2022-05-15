@@ -44,7 +44,7 @@ class End2EndTrainer(Trainer):
         else:
             self.load_ckpt(args.ckpt_path)
             if args.occ_map is not None:
-                self.model.load_occ_map(args.occ_map, self.device)
+                self.model.load_occ_map(args.occ_map)
 
         # Initialize dataset
         self.train_set = get_dataset(self.dataset_cfg, 'train')
@@ -113,7 +113,7 @@ class End2EndTrainer(Trainer):
         def _load(ckpt_path):
             ckpt = torch.load(ckpt_path)
             if 'model' not in ckpt.keys():
-                self.model.load_nodes(ckpt['trained'], self.device)
+                self.model.load_nodes(ckpt['trained'])
                 self.logger.info('Loaded distill checkpoint \"{}\"'.format(ckpt_path))
                 return
 
@@ -124,7 +124,7 @@ class End2EndTrainer(Trainer):
                 ckpt['model']['d_embedder.basis'] = 2 ** torch.range(0, 3, device=self.device)
 
             self.iter_ctr = ckpt['iter']
-            self.model.load_state_dict(ckpt['model'])
+            self.model.load_ckpt(ckpt)
             self.optim.load_state_dict(ckpt['optim'])
 
             rng_states = ckpt['rng_states']
