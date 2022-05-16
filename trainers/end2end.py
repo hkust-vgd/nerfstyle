@@ -139,7 +139,6 @@ class End2EndTrainer(Trainer):
     def save_ckpt(self):
         ckpt_dict = {
             'iter': self.iter_ctr,
-            'model': self.model.state_dict(),
             'optim': self.optim.state_dict(),
             'rng_states': {
                 'np': np.random.get_state(),
@@ -147,6 +146,7 @@ class End2EndTrainer(Trainer):
                 'torch_cuda': torch.cuda.get_rng_state()
             }
         }
+        ckpt_dict = self.model.save_ckpt(ckpt_dict)
 
         ckpt_fn = 'iter_{:0{width}d}.pth'.format(
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
@@ -202,5 +202,5 @@ class End2EndTrainer(Trainer):
             self.test_networks()
         if self.check_interval(self.train_cfg.intervals.log):
             self.log_status(losses, new_lr)
-        if self.check_interval(self.train_cfg.intervals.ckpt):
+        if self.check_interval(self.train_cfg.intervals.ckpt, final=True):
             self.save_ckpt()

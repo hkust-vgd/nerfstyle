@@ -88,6 +88,10 @@ class Nerf(TensorModule):
     def load_ckpt(self, ckpt):
         self.load_state_dict(ckpt['model'])
 
+    def save_ckpt(self, ckpt):
+        ckpt['model'] = self.state_dict()
+        return ckpt
+
     def forward(self, pts, dirs, *args):
         # If additional arguments are provided, bind them to every linear layer
         def bind(layer):

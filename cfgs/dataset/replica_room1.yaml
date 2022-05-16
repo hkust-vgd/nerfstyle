@@ -10,7 +10,7 @@ net_res:
 - 14
 replica_cfg:
   name: room1
-  near: 0.5
+  near: 0.1
   far: 6.8
   focal_ratio: 0.5
   traj_ids: [19, 21, 32, 34, 61, 62, 63, 66, 70]

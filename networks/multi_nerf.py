@@ -143,11 +143,17 @@ class DynamicMultiNerf(MultiNerf):
     def load_ckpt(self, ckpt):
         super().load_ckpt(ckpt)
 
-        assert 'active' in ckpt.keys()
+        self.mid_pts = ckpt['mid_pts'].to(self.device)
         self.is_active = ckpt['active'].to(self.device)
 
         # Model is ready if can succesfully from existing state dict
         self._ready = True
+
+    def save_ckpt(self, ckpt):
+        ckpt = super().save_ckpt(ckpt)
+        ckpt['mid_pts'] = self.mid_pts.cpu()
+        ckpt['active'] = self.is_active.cpu()
+        return ckpt
 
     def load_nodes(
         self,
