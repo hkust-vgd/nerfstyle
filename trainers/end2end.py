@@ -1,4 +1,6 @@
 import time
+from typing import Dict
+
 import einops
 import numpy as np
 import torch
@@ -7,7 +9,8 @@ from torch.utils.data import DataLoader
 import torchvision
 from tqdm import tqdm
 
-from data import get_dataset
+from common import LossValue
+from data import get_dataset, load_bbox
 from loss import FeatureExtractor, StyleLoss
 from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
@@ -42,14 +45,15 @@ class End2EndTrainer(Trainer):
         else:
             self.load_ckpt(args.ckpt_path)
             if args.occ_map is not None:
-                self.model.load_occ_map(args.occ_map, self.device)
+                self.model.load_occ_map(args.occ_map)
 
         # Initialize dataset
         self.train_set = get_dataset(self.dataset_cfg, 'train')
         self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = get_dataset(self.dataset_cfg, 'test', skip=5)
+        self.test_set = get_dataset(self.dataset_cfg, 'test', skip=self.train_cfg.test_skip,
+                                    max_count=30)
         self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
 
@@ -68,44 +72,61 @@ class End2EndTrainer(Trainer):
         self.style_image = torch.tensor(style_image_np, device=self.device)
         self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
 
-    def calc_loss(self, rendered, target):
-        rgb_c, rgb_s = torch.split(rendered, [3, 3], dim=-1)
-        mse_loss = torch.mean((rgb_c - target) ** 2)
+        # Load bbox if needed
+        self.bbox = None
+        if self.train_cfg.bbox_lambda > 0.0:
+            self.bbox = load_bbox(self.dataset_cfg, scale_box=False).to(self.device)
 
-        rgb_s_feats = self.fe(einops.rearrange(rgb_s, '(h w) c -> c h w', h=256, w=256))
-        target_feats = self.fe(einops.rearrange(target, '(h w) c -> c h w', h=256, w=256))
+    def calc_loss(self, output: Dict[str, torch.Tensor]):
+        assert output['target'] is not None
 
+        rgb_s_feats = self.fe(
+            einops.rearrange(output['style_map'], '(h w) c -> c h w', h=256, w=256))
+        target_feats = self.fe(
+            einops.rearrange(output['target'], '(h w) c -> c h w', h=256, w=256))
+
+        mse_loss = torch.mean((output['rgb_map'] - output['target']) ** 2)
         content_loss = F.mse_loss(rgb_s_feats['layer3'], target_feats['layer3'])
         style_loss = self.style_loss(rgb_s_feats)
 
         content_loss *= self.train_cfg.content_lambda
         style_loss *= self.train_cfg.style_lambda
-        total_loss = mse_loss + content_loss + style_loss
 
         losses = {
-            'mse': mse_loss,
-            'content': content_loss,
-            'style': style_loss,
-            'total': total_loss
+            'mse': LossValue('MSE', 'mse_loss', mse_loss),
+            'psnr': LossValue('PSNR', 'psnr', utils.compute_psnr(mse_loss)),
+            'content': LossValue('Content', 'content_loss', content_loss),
+            'style': LossValue('Style', 'style_loss', style_loss),
         }
+        total_loss = mse_loss + content_loss + style_loss
+
+        # Penalize positive densities outside bbox
+        bbox_lambda = self.train_cfg.bbox_lambda
+        if bbox_lambda > 0.:
+            bbox_mask = self.bbox(output['pts'], outside=True)
+            pos_densities = F.relu(output['densities'].reshape(-1))
+            bbox_loss = torch.mean(bbox_mask * pos_densities) * bbox_lambda
+            losses['bbox'] = LossValue('BBox', 'bbox_loss', bbox_loss)
+            total_loss += bbox_loss
+
+        losses['total'] = LossValue('Total', 'total_loss', total_loss)
         return losses
 
-    def print_status(self, losses, psnr):
-        status_dict = {
-            'MSE': '{:.5f}'.format(losses['mse'].item()),
-            'Content': '{:.5f}'.format(losses['content'].item()),
-            'Style': '{:.5f}'.format(losses['style'].item()),
-            'Total': '{:.5f}'.format(losses['total'].item()),
-            'PSNR': '{:.5f}'.format(psnr.item())
-        }
+    def print_status(
+        self,
+        losses: Dict[str, LossValue]
+    ) -> None:
+        status_dict = {lv.print_name: '{:.5f}'.format(lv.value.item()) for lv in losses.values()}
         super().print_status(status_dict)
 
-    def log_status(self, losses, psnr, cur_lr):
-        self.writer.add_scalar('train/mse_loss', losses['mse'].item(), self.iter_ctr)
-        self.writer.add_scalar('train/content_loss', losses['content'].item(), self.iter_ctr)
-        self.writer.add_scalar('train/style_loss', losses['style'].item(), self.iter_ctr)
-        self.writer.add_scalar('train/total_loss', losses['total'].item(), self.iter_ctr)
-        self.writer.add_scalar('train/psnr', psnr.item(), self.iter_ctr)
+    def log_status(
+        self,
+        losses: Dict[str, LossValue],
+        cur_lr: float
+    ) -> None:
+        for lv in losses.values():
+            self.writer.add_scalar('train/{}'.format(lv.log_name), lv.value.item(), self.iter_ctr)
+
         self.writer.add_scalar('misc/iter_time', self.time1 - self.time0, self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
 
@@ -114,7 +135,7 @@ class End2EndTrainer(Trainer):
         def _load(ckpt_path):
             ckpt = torch.load(ckpt_path)
             if 'model' not in ckpt.keys():
-                self.model.load_nodes(ckpt['trained'], self.device)
+                self.model.load_nodes(ckpt['trained'])
                 self.logger.info('Loaded distill checkpoint \"{}\"'.format(ckpt_path))
                 return
 
@@ -125,8 +146,15 @@ class End2EndTrainer(Trainer):
                 ckpt['model']['d_embedder.basis'] = 2 ** torch.range(0, 3, device=self.device)
 
             self.iter_ctr = ckpt['iter']
-            self.model.load_state_dict(ckpt['model'])
-            self.optim.load_state_dict(ckpt['optim'])
+            self.model.load_ckpt(ckpt)
+            # ['state', 'param_groups']
+
+            # TODO: Fix optimizer later
+            # ckpt['optim']['state'][12] = ckpt['optim']['state'][10]
+            # ckpt['optim']['state'][13] = ckpt['optim']['state'][11]
+            # params = ckpt['optim']['param_groups'][0]['params']
+            # ckpt['optim']['param_groups'][0]['params'] = params + [12, 13]
+            # self.optim.load_state_dict(ckpt['optim'])
 
             rng_states = ckpt['rng_states']
             np.random.set_state(rng_states['np'])
@@ -140,7 +168,6 @@ class End2EndTrainer(Trainer):
     def save_ckpt(self):
         ckpt_dict = {
             'iter': self.iter_ctr,
-            'model': self.model.state_dict(),
             'optim': self.optim.state_dict(),
             'rng_states': {
                 'np': np.random.get_state(),
@@ -148,6 +175,7 @@ class End2EndTrainer(Trainer):
                 'torch_cuda': torch.cuda.get_rng_state()
             }
         }
+        ckpt_dict = self.model.save_ckpt(ckpt_dict)
 
         ckpt_fn = 'iter_{:0{width}d}.pth'.format(
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
@@ -164,11 +192,11 @@ class End2EndTrainer(Trainer):
 
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             img, pose = img.to(self.device), pose.to(self.device)
-            rgb_map, _ = self.test_renderer.render(img, pose)
+            output = self.test_renderer.render(pose)
 
             _, h, w = img.shape
-            rgb_map = einops.rearrange(rgb_map, '(h w) c -> c h w', h=h, w=w)
-            c_map, s_map = torch.split(rgb_map, [3, 3], dim=0)
+            c_map = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
+            s_map = einops.rearrange(output['style_map'], '(h w) c -> c h w', h=h, w=w)
 
             c_save_path = img_dir / 'frame_{:03d}.png'.format(i)
             s_save_path = img_dir / 'style_{:03d}.png'.format(i)
@@ -181,13 +209,13 @@ class End2EndTrainer(Trainer):
         img, pose = img.to(self.device), pose.to(self.device)
 
         self.train_renderer.precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
-        rgb_map, target = self.train_renderer.render(img, pose)
+        ret_flags = ['densities', 'pts']
+        output = self.train_renderer.render(pose, img, ret_flags)
 
-        losses = self.calc_loss(rendered=rgb_map, target=target)
-        psnr = utils.compute_psnr(losses['mse'])
-
+        losses = self.calc_loss(output)
         self.optim.zero_grad()
-        losses['total'].backward()
+        back_key = 'total' if 'total' in losses.keys() else 'mse'
+        losses[back_key].value.backward()
         self.optim.step()
 
         # Update counter after backprop
@@ -203,10 +231,10 @@ class End2EndTrainer(Trainer):
 
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
-            self.print_status(losses, psnr)
+            self.print_status(losses)
         if self.check_interval(self.train_cfg.intervals.test):
             self.test_networks()
         if self.check_interval(self.train_cfg.intervals.log):
-            self.log_status(losses, psnr, new_lr)
-        if self.check_interval(self.train_cfg.intervals.ckpt):
+            self.log_status(losses, new_lr)
+        if self.check_interval(self.train_cfg.intervals.ckpt, final=True):
             self.save_ckpt()

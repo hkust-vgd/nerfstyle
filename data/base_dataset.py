@@ -2,25 +2,28 @@ from abc import ABC
 from pathlib import Path
 import numpy as np
 from torch.utils.data import Dataset
-from typing import Union
 
 from common import Intrinsics
+from config import DatasetConfig
 
 
 class BaseDataset(Dataset, ABC):
     def __init__(
         self,
-        dataroot: Union[str, Path],
+        cfg: DatasetConfig,
         split: str,
-        skip: int = 1
+        skip: int = 1,
+        max_count: int = -1
     ):
         super().__init__()
 
-        self.root = Path(dataroot)
+        self.cfg = cfg
         self.split = split
         self.skip = skip
+        self.max_count = max_count
 
-        assert self.root.exists(), 'Root path "{}" does not exist'.format(self.root)
+        root = self.cfg.root_path
+        assert root.exists(), 'Root path "{}" does not exist'.format(root)
 
         # Common dataset interface
         self.imgs: np.ndarray

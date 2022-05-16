@@ -3,12 +3,12 @@ from typing import Optional
 import numpy as np
 import torch
 
+from common import OccupancyGrid
 from config import DatasetConfig, NetworkConfig
 from data import load_bbox
 from networks.embedder import Embedder, MultiEmbedder
 from networks.linears import MultiLinear, StaticMultiLinear, DynamicMultiLinear
 from nerf_lib import nerf_lib
-from occ_map import OccupancyGrid
 from .nerf import Nerf
 
 
@@ -104,11 +104,19 @@ class DynamicMultiNerf(MultiNerf):
         self.occ_map = None
 
         # For dynamic evaluation
-        self.global_min_pt, self.global_max_pt = load_bbox(dataset_cfg)
-        self.net_res = dataset_cfg.net_res
-        self.mid_pts = np.empty((self.num_nets, 3))
-        self.voxel_size, self.basis = None, None
-        self.is_active = None
+        bbox = load_bbox(dataset_cfg)
+        self.global_min_pt = torch.tensor(bbox.min_pt)
+        self.global_max_pt = torch.tensor(bbox.max_pt)
+        self.net_res = torch.tensor(dataset_cfg.net_res)
+        self.mid_pts = torch.empty((self.num_nets, 3))
+
+        self.voxel_size = (self.global_max_pt - self.global_min_pt) / self.net_res
+        self.basis = torch.tensor(
+            [self.net_res[2] * self.net_res[1], self.net_res[2], 1],
+            dtype=torch.long, device=self.device)
+
+        # Last element (always False) is for index == -1
+        self.is_active = torch.zeros(self.num_nets + 1, dtype=torch.bool, device=self.device)
 
         assert self.num_nets == np.prod(dataset_cfg.net_res)
         self._ready = False
@@ -132,16 +140,31 @@ class DynamicMultiNerf(MultiNerf):
         return DynamicMultiLinear(
             self.num_nets, in_channels, out_channels, self.activation)
 
+    def load_ckpt(self, ckpt):
+        if 's_layer.weight' not in ckpt['model'].keys():
+            ckpt['model']['s_layer.weight'] = ckpt['model']['c_layer.weight']
+            ckpt['model']['s_layer.bias'] = ckpt['model']['c_layer.bias']
+
+        super().load_ckpt(ckpt)
+
+        self.mid_pts = ckpt['mid_pts'].to(self.device)
+        self.is_active = ckpt['active'].to(self.device)
+
+        # Model is ready if can succesfully from existing state dict
+        self._ready = True
+
+    def save_ckpt(self, ckpt):
+        ckpt = super().save_ckpt(ckpt)
+        ckpt['mid_pts'] = self.mid_pts.cpu()
+        ckpt['active'] = self.is_active.cpu()
+        return ckpt
+
     def load_nodes(
         self,
-        nodes: list,
-        device: torch.device
+        nodes: list
     ) -> None:
         assert len(nodes) == self.num_nets
         nodes.sort(key=(lambda node: node['idx']))
-
-        # Last element (always False) is for index == -1
-        self.is_active = torch.zeros(self.num_nets + 1, dtype=torch.bool)
 
         min_pt = np.ones(3) * np.inf
         max_pt = np.ones(3) * -np.inf
@@ -149,7 +172,8 @@ class DynamicMultiNerf(MultiNerf):
         for idx, node in enumerate(nodes):
             min_pt = np.minimum(min_pt, node['min_pt'])
             max_pt = np.maximum(max_pt, node['max_pt'])
-            self.mid_pts[idx] = (node['min_pt'] + node['max_pt']) / 2
+            mid_pt = (node['min_pt'] + node['max_pt']) / 2
+            self.mid_pts[idx] = torch.from_numpy(mid_pt).to(self.device)
             if not node['started']:
                 continue
 
@@ -167,22 +191,12 @@ class DynamicMultiNerf(MultiNerf):
 
         # Model is ready if sub-networks span the global domain
         self._ready = (
-            np.allclose(self.global_min_pt, min_pt) and
-            np.allclose(self.global_max_pt, max_pt)
+            np.allclose(self.global_min_pt.cpu().numpy(), min_pt) and
+            np.allclose(self.global_max_pt.cpu().numpy(), max_pt)
         )
 
-        # Move dataset metadata onto device for later computation
-        for k in ['global_min_pt', 'global_max_pt', 'net_res', 'mid_pts']:
-            v = getattr(self, k)
-            setattr(self, k, torch.FloatTensor(v).to(device))
-
-        self.voxel_size = (self.global_max_pt - self.global_min_pt) / self.net_res
-        self.basis = torch.LongTensor([self.net_res[2] * self.net_res[1], self.net_res[2], 1])
-        self.basis = self.basis.to(device)
-        self.is_active = self.is_active.to(device)
-
-    def load_occ_map(self, map_path, device):
-        self.occ_map = OccupancyGrid.load(map_path, self.logger).to(device)
+    def load_occ_map(self, map_path):
+        self.occ_map = OccupancyGrid.load(map_path, self.logger).to(self.device)
         self.logger.info('Loaded occupancy map "{}"'.format(map_path))
 
     def map_to_nets_indices(self, pts):

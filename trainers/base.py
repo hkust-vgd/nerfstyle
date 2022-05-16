@@ -18,7 +18,7 @@ class Trainer(ABC):
         self.time1 = 0
 
         self.name = args.name
-        self.log_dir: Path = Path('./runs') / self.name
+        self.log_dir: Path = Path(args.run_dir) / self.name
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         if next(self.log_dir.iterdir(), None) is not None:

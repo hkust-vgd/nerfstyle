@@ -102,6 +102,32 @@ class DatasetConfig(Config):
     net_res: tuple
     """Local NeRF grid resolution for each dimension."""
 
+    @dataclass
+    class ReplicaConfig:
+        name: str
+        """Name of scene."""
+
+        near: float
+        """Near plane distance for sampling."""
+
+        far: float
+        """Far plane distance for sampling."""
+
+        focal_ratio: float
+        """Set focal length to frame side length times this value."""
+
+        traj_ids: List[int]
+        """Trajectory ids that belong to this scene."""
+
+        black2white: bool
+        """Convert black (0, 0, 0) pixels into white."""
+
+        scale_factor: float
+        """Scale the bounding box by this value to allow greater tolerance."""
+
+    replica_cfg: Optional[ReplicaConfig]
+    """Additional config settings for Replica dataset."""
+
 
 @dataclass
 class NetworkConfig(Config):
@@ -146,6 +172,9 @@ class TrainConfig(Config):
 
     num_iterations: int
     """No. of total iterations for training."""
+
+    test_skip: int
+    """Render the test image once every N frames, to save time."""
 
     @dataclass
     class TrainIntervalConfig:
@@ -198,6 +227,9 @@ class TrainConfig(Config):
 
     style_lambda: float
     """Style loss multiplier."""
+
+    bbox_lambda: float
+    """Bounding box loss multiplier."""
 
     default_path = 'cfgs/training/default.yaml'
 

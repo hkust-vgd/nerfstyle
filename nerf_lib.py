@@ -1,11 +1,9 @@
 from pathlib import Path
-from anyio import run_async_from_thread
+from typing import Optional, Tuple
 import einops
 import numpy as np
 import torch
 import torch.nn.functional as F
-from einops import reduce
-from typing import List, Optional, Tuple
 from torch.utils.cpp_extension import load
 from torchtyping import TensorType
 
@@ -50,9 +48,9 @@ class NerfLib:
 
     def generate_rays(
         self,
-        img: TensorType[3, 'H', 'W'],
         pose: TensorType[4, 4],
         dataset: Dataset,
+        img: Optional[TensorType['H', 'W', 3]] = None,
         precrop: Optional[float] = None,
         bsize: Optional[int] = None,
         grid_dims: Optional[Tuple[int, int]] = None
@@ -63,18 +61,20 @@ class NerfLib:
             img (TensorType[3, 'H', 'W']): Ground truth image.
             pose (TensorType[4, 4]): Camera-to-world transformation matrix.
             dataset (Dataset): Dataset object.
+            img (Optional[TensorType['h', 'w', 3]]): Ground truth image.
             precrop (Optional[float]): Precrop factor; None if not specified.
             bsize (Optional[int]): Size of ray batch. All rays are used if not specified.
             grid_dims (Optional[Tuple[int, int]]): Dimension of sampling grid. If None, the output
                 image dimensions are used.
 
         Returns:
+            rays (RayBatch): A batch of K rays.
             target (TensorType['K', 3]): Pixel values corresponding to rays.
-            rays (RayBatch): Batch of rays.
         """
 
         intr = dataset.intrinsics
         near, far = dataset.near, dataset.far
+        target = None
 
         fh, fw = intr.h, intr.w
         if grid_dims is not None:
@@ -106,20 +106,22 @@ class NerfLib:
         rays_d = torch.einsum('ij, hwj -> hwi', pose_r, dirs)
 
         if bsize is None:
-            img = F.interpolate(img.unsqueeze(0), size=(fh, fw)).squeeze(0)
-            target = einops.rearrange(img, 'c h w -> (h w) c')
             rays_d = rays_d.reshape((-1, 3))
+            if img is not None:
+                img = F.interpolate(img.unsqueeze(0), size=(fh, fw)).squeeze(0)
+                target = einops.rearrange(img, 'c h w -> (h w) c')
         else:
             # TODO: Verify if dims paramter work
             assert grid_dims is None
             indices_1d = np.random.choice(np.arange(w * h), bsize, replace=False)
             indices_2d = (indices_1d // h, indices_1d % h)
             coords = (indices_2d[0] + dy, indices_2d[1] + dx)
-            target = img[:, coords].T
             rays_d = rays_d[indices_2d]
+            if img is not None:
+                target = img[coords]
 
         rays = RayBatch(pose_t, rays_d, near, far)
-        return target, rays
+        return rays, target
 
     def sample_points(
         self,
@@ -175,8 +177,8 @@ class NerfLib:
         ], dim=-1)
         ts = torch.cumprod(alpha_tmp, dim=-1)
         weights = alpha * ts  # (N, K)
-        rgb_map = reduce(weights[..., None] * rgbs, 'n k c -> n c', 'sum')
-        acc_map = reduce(weights, 'n k -> n', 'sum')
+        rgb_map = einops.reduce(weights[..., None] * rgbs, 'n k c -> n c', 'sum')
+        acc_map = einops.reduce(weights, 'n k -> n', 'sum')
 
         res = (1 - acc_map)[..., None]
         rgb_map = rgb_map + res * bg_color

@@ -2,8 +2,9 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 
-from data.base_dataset import BaseDataset
 from common import Intrinsics
+from config import DatasetConfig
+from data.base_dataset import BaseDataset
 import utils
 
 
@@ -16,11 +17,11 @@ class NSVFDataset(BaseDataset):
     ):
         super().__init__(dataroot, split, skip)
 
-        rgb_dir = self.root / 'rgb'
-        pose_dir = self.root / 'pose'
-        intrinsics_path = self.root / 'intrinsics.txt'
-        bbox_path = self.root / 'bbox.txt'
-        nf_path = self.root / 'near_and_far.txt'
+        root = self.cfg.root_path
+        rgb_dir = root / 'rgb'
+        pose_dir = root / 'pose'
+        intrinsics_path = root / 'intrinsics.txt'
+        nf_path = root / 'near_and_far.txt'
 
         split_prefix = {'train': 0, 'val': 1, 'test': 2}
         self.rgb_paths = sorted(rgb_dir.glob('{}_*.png'.format(split_prefix[split])))
@@ -41,7 +42,7 @@ class NSVFDataset(BaseDataset):
             f, cx, cy, _ = map(float, file.readline().split())
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-        self.bbox_min, self.bbox_max = load_bbox(bbox_path)
+        self.bbox_min, self.bbox_max, _ = load_bbox(self.cfg)
 
         # bbox_center = (bbox_min + bbox_max) / 2
         # pts = self.poses[:, :3, -1]
@@ -52,12 +53,19 @@ class NSVFDataset(BaseDataset):
 
         self.near, self.far = utils.load_matrix(nf_path)[0]
 
-        self.bg_color = np.ones(3, dtype=np.float32)
-
     def __str__(self):
+        name = self.cfg.root_path.stem
         desc = 'NSVF dataset \"{}\" with {:d} entries'
-        return desc.format(self.root.stem, len(self))
+        return desc.format(name, len(self))
 
 
-def load_bbox(bbox_path):
-    return utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+def load_bbox(
+    dataset_cfg: DatasetConfig,
+    scale_box: bool = True
+):
+    # TODO: Implement bbox object
+
+    # bbox_path = dataset_cfg.root_path / 'bbox.txt'
+    # bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+    # return bbox_min, bbox_max, None
+    raise NotImplementedError

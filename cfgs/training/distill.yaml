@@ -3,7 +3,7 @@ intervals:
   print: 100
   log: 0
   ckpt: 10000
-  test: 500
+  test: 5000
 distill:
   alpha_dist: 0.0211
   init_data_bsize: 160000

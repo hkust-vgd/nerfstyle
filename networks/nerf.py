@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from typing import List, TypeVar
 
+from common import TensorModule
 from config import NetworkConfig
 from networks.embedder import Embedder
 import utils
@@ -10,7 +11,7 @@ import utils
 T = TypeVar('T', bound='Nerf')
 
 
-class Nerf(nn.Module):
+class Nerf(TensorModule):
     def __init__(
         self: T,
         x_enc_counts: int,
@@ -84,6 +85,13 @@ class Nerf(nn.Module):
     ) -> T:
         self.device = device
         return super().to(device)
+
+    def load_ckpt(self, ckpt):
+        self.load_state_dict(ckpt['model'])
+
+    def save_ckpt(self, ckpt):
+        ckpt['model'] = self.state_dict()
+        return ckpt
 
     def forward(self, pts, dirs, *args):
         # If additional arguments are provided, bind them to every linear layer
