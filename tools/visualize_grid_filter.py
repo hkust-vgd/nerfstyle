@@ -30,6 +30,8 @@ def main():
 
     grid_dims = grid.shape
     net_dims = cfg.net_res
+    assert np.all(np.array(net_dims) * 16 == np.array(grid_dims)), \
+        'config and occ_map dims not match'
     x_coords = np.linspace(0, grid_dims[0], net_dims[0]+1).astype(int)
     y_coords = np.linspace(0, grid_dims[1], net_dims[1]+1).astype(int)
     z_coords = np.linspace(0, grid_dims[2], net_dims[2]+1).astype(int)
