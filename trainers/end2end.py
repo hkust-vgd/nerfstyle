@@ -33,8 +33,17 @@ class End2EndTrainer(Trainer):
         self.logger.info('Created model ' + str(self.model))
 
         # Initialize optimizer
+        train_keys = ['x_layers', 'd_layers', 'x2d_layer', 'c_layer', 's_layer']
+
+        def trainable(key):
+            return any([(k in key) for k in train_keys])
+
+        train_params = self.model.named_parameters()
+        if train_keys is not None:
+            train_params = [p for n, p in train_params if trainable(n)]
+
         self.optim = torch.optim.Adam(
-            params=self.model.parameters(),
+            params=train_params,
             lr=self.train_cfg.initial_learning_rate,
             betas=(0.9, 0.999)
         )
