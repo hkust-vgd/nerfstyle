@@ -74,3 +74,66 @@ class StyleLoss(nn.Module):
         matrices = {k: gram_mtx(v) for k, v in feats.items()}
         losses = torch.stack([F.mse_loss(self.matrices[k], matrices[k]) for k in self.keys])
         return torch.sum(losses)
+
+
+class MattingLaplacian(nn.Module):
+    def __init__(
+        self,
+        device: torch.device,
+        win_rad: int = 1,
+        eps: float = 1E-7
+    ) -> None:
+        super().__init__()
+        self.device = device
+        self.win_rad = win_rad
+        self.eps = eps
+
+    def _compute_laplacian(
+        self,
+        image: TensorType[3, 'H', 'W']
+    ) -> torch.Tensor:
+        # Reference numpy implementation:
+        # https://github.com/MarcoForte/closed-form-matting
+
+        def eye(k):
+            return torch.eye(k, device=self.device)
+
+        win_size = (self.win_rad * 2 + 1) ** 2
+        d, h, w = image.shape
+        win_diam = self.win_rad * 2 + 1
+
+        indsM = torch.arange(h * w, device=self.device).reshape((h, w))
+        ravelImg = image.reshape((d, h * w)).T
+
+        shape = (h - win_diam + 1, w - win_diam + 1) + (win_diam, win_diam)
+        strides = indsM.stride() + indsM.stride()
+        win_inds = torch.as_strided(indsM, shape, strides)
+        win_inds = win_inds.reshape(-1, win_size)
+
+        winI = ravelImg[win_inds]  # (P, K**2, 3)
+        win_mu = torch.mean(winI, dim=1, keepdim=True)  # (P, 1, 3)
+        win_var = torch.einsum('...ji,...jk ->...ik', winI, winI) / win_size - \
+            torch.einsum('...ji,...jk ->...ik', win_mu, win_mu)  # (P, 3, 3)
+
+        inv = torch.linalg.inv(win_var + (self.eps / win_size) * eye(3))
+        X = torch.einsum('...ij,...jk->...ik', winI - win_mu, inv)
+        vals = eye(win_size) - (1. / win_size) * \
+            (1 + torch.einsum('...ij,...kj->...ik', X, winI - win_mu))
+
+        nz_indsCol = torch.tile(win_inds, (win_size, )).ravel()
+        nz_indsRow = torch.repeat_interleave(win_inds, win_size).ravel()
+        nz_inds = torch.stack((nz_indsRow, nz_indsCol), dim=0)
+        nz_indsVal = vals.ravel()
+        L = torch.sparse_coo_tensor(indices=nz_inds, values=nz_indsVal, size=(h * w, h * w))
+        return L
+
+    @typechecked
+    def forward(
+        self,
+        target: TensorType[3, 'H', 'W'],
+        style_map: TensorType[3, 'H', 'W']
+    ) -> TensorType[()]:
+        M = self._compute_laplacian(target)  # (HW, HW)
+        V = style_map.reshape((3, -1))
+        output = torch.trace(torch.mm(V, torch.sparse.mm(M, V.T)))
+        return output

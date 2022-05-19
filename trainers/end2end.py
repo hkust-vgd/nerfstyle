@@ -1,3 +1,4 @@
+from functools import partial
 import time
 from typing import Dict
 
@@ -11,7 +12,7 @@ from tqdm import tqdm
 
 from common import LossValue
 from data import get_dataset, load_bbox
-from loss import FeatureExtractor, StyleLoss
+from loss import FeatureExtractor, MattingLaplacian, StyleLoss
 from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
 from renderer import Renderer
@@ -80,6 +81,7 @@ class End2EndTrainer(Trainer):
         style_image_np = utils.parse_rgb(args.style_image, size=(256, 256))
         self.style_image = torch.tensor(style_image_np, device=self.device)
         self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
+        self.photo_loss = MattingLaplacian(device=self.device)
 
         # Load bbox if needed
         self.bbox = None
@@ -89,25 +91,30 @@ class End2EndTrainer(Trainer):
     def calc_loss(self, output: Dict[str, torch.Tensor]):
         assert output['target'] is not None
 
-        rgb_s_feats = self.fe(
-            einops.rearrange(output['style_map'], '(h w) c -> c h w', h=256, w=256))
-        target_feats = self.fe(
-            einops.rearrange(output['target'], '(h w) c -> c h w', h=256, w=256))
+        nc2chw = partial(einops.rearrange, pattern='(h w) c -> c h w', h=256, w=256)
+        style_map_chw = nc2chw(output['style_map'])
+        target_chw = nc2chw(output['target'])
+
+        rgb_s_feats = self.fe(style_map_chw)
+        target_feats = self.fe(target_chw)
 
         mse_loss = torch.mean((output['rgb_map'] - output['target']) ** 2)
         content_loss = F.mse_loss(rgb_s_feats['layer3'], target_feats['layer3'])
         style_loss = self.style_loss(rgb_s_feats)
+        photo_loss = self.photo_loss(target_chw, style_map_chw)
 
         content_loss *= self.train_cfg.content_lambda
         style_loss *= self.train_cfg.style_lambda
+        photo_loss *= 0.0001
 
         losses = {
             'mse': LossValue('MSE', 'mse_loss', mse_loss),
             'psnr': LossValue('PSNR', 'psnr', utils.compute_psnr(mse_loss)),
             'content': LossValue('Content', 'content_loss', content_loss),
             'style': LossValue('Style', 'style_loss', style_loss),
+            'photo': LossValue('Photo', 'photo_loss', photo_loss),
         }
-        total_loss = mse_loss + content_loss + style_loss
+        total_loss = mse_loss + content_loss + style_loss + photo_loss
 
         # Penalize positive densities outside bbox
         bbox_lambda = self.train_cfg.bbox_lambda
