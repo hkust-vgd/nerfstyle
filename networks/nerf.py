@@ -22,7 +22,8 @@ class Nerf(TensorModule):
         activation: str = 'relu',
         skip: List[int] = ()
     ) -> None:
-        """NeRF MLP network.
+        """
+        Base class of all NeRF MLP networks.
 
         Args:
             x_enc_counts (int): No. of terms for positional embedder.
@@ -87,6 +88,10 @@ class Nerf(TensorModule):
         return super().to(device)
 
     def load_ckpt(self, ckpt):
+        if 's_layer.weight' not in ckpt['model'].keys():
+            ckpt['model']['s_layer.weight'] = ckpt['model']['c_layer.weight']
+            ckpt['model']['s_layer.bias'] = ckpt['model']['c_layer.bias']
+
         self.load_state_dict(ckpt['model'])
 
     def save_ckpt(self, ckpt):
@@ -125,6 +130,9 @@ class Nerf(TensorModule):
 
 class SingleNerf(Nerf):
     def __init__(self, **nerf_params) -> None:
+        """
+        A single NeRF network.
+        """
         super().__init__(**nerf_params)
 
     @staticmethod
@@ -140,6 +148,15 @@ class SingleNerf(Nerf):
         cls,
         net_cfg: NetworkConfig
     ) -> SingleNerf:
+        """
+        Create new NeRF network using default vanilla NeRF architecture.
+
+        Args:
+            net_cfg (NetworkConfig): Config object for network hyperparameters.
+
+        Returns:
+            SingleNerf: NeRF model.
+        """
         nerf_config = {
             'x_enc_counts': net_cfg.x_enc_count,
             'd_enc_counts': net_cfg.d_enc_count,

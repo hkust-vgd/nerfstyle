@@ -19,11 +19,8 @@ class MultiNerf(Nerf):
         network_seed: Optional[int],
         **nerf_params
     ) -> None:
-        """Composite of multiple NeRF MLP networks.
-
-        Args:
-            num_nets (int): No. of networks.
-            nerf_params: refer to parent class documentation.
+        """
+        Composite of multiple NeRF MLP networks.
         """
         self._nerf_params = nerf_params
         self.num_nets = num_nets
@@ -50,6 +47,7 @@ class MultiNerf(Nerf):
 
     @torch.no_grad()
     def extract(self, idx: int) -> Nerf:
+        # TODO: change this to SingleNerf
         single_model = Nerf(**self._nerf_params)
         for name, module in self.named_modules():
             if isinstance(module, MultiLinear):
@@ -128,6 +126,17 @@ class DynamicMultiNerf(MultiNerf):
         net_cfg: NetworkConfig,
         dataset_cfg: DatasetConfig
     ) -> DynamicMultiNerf:
+        """
+        Create new NeRF multi-network using default KiloNeRF architecture.
+
+        Args:
+            num_nets (int): Total number of sub-networks.
+            net_cfg (NetworkConfig): Config object for network hyperparameters.
+            dataset_cfg (DatasetConfig): Config object for dataset hyperparameters.
+
+        Returns:
+            DynamicMultiNerf: MultiNeRF model.
+        """
         nerf_config = super()._get_default_config(net_cfg)
         model = cls(dataset_cfg, num_nets, net_cfg.network_seed, **nerf_config)
         return model
@@ -141,10 +150,6 @@ class DynamicMultiNerf(MultiNerf):
             self.num_nets, in_channels, out_channels, self.activation)
 
     def load_ckpt(self, ckpt):
-        if 's_layer.weight' not in ckpt['model'].keys():
-            ckpt['model']['s_layer.weight'] = ckpt['model']['c_layer.weight']
-            ckpt['model']['s_layer.bias'] = ckpt['model']['c_layer.bias']
-
         super().load_ckpt(ckpt)
 
         self.mid_pts = ckpt['mid_pts'].to(self.device)
