@@ -1,3 +1,4 @@
+from numpy import dtype
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -133,6 +134,8 @@ class MattingLaplacian(nn.Module):
         target: TensorType[3, 'H', 'W'],
         style_map: TensorType[3, 'H', 'W']
     ) -> TensorType[()]:
+        style_map = style_map.to(dtype=torch.float64)
+        target = target.to(dtype=torch.float64)
         M = self._compute_laplacian(target)  # (HW, HW)
         V = style_map.reshape((3, -1))
         output = torch.trace(torch.mm(V, torch.sparse.mm(M, V.T)))

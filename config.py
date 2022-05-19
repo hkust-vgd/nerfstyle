@@ -228,6 +228,9 @@ class TrainConfig(Config):
     style_lambda: float
     """Style loss multiplier."""
 
+    photo_lambda: float
+    """Photorealistic loss multiplier."""
+
     bbox_lambda: float
     """Bounding box loss multiplier."""
 

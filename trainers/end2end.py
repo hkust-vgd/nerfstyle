@@ -105,7 +105,7 @@ class End2EndTrainer(Trainer):
 
         content_loss *= self.train_cfg.content_lambda
         style_loss *= self.train_cfg.style_lambda
-        photo_loss *= 0.0001
+        photo_loss *= self.train_cfg.photo_lambda
 
         losses = {
             'mse': LossValue('MSE', 'mse_loss', mse_loss),
