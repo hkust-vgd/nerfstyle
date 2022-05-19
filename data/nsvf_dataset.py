@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 
-from common import Intrinsics
+from common import Intrinsics, RegularBBox
 from config import DatasetConfig
 from data.base_dataset import BaseDataset
 import utils
@@ -42,8 +42,6 @@ class NSVFDataset(BaseDataset):
             f, cx, cy, _ = map(float, file.readline().split())
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-        self.bbox_min, self.bbox_max, _ = load_bbox(self.cfg)
-
         # bbox_center = (bbox_min + bbox_max) / 2
         # pts = self.poses[:, :3, -1]
         # closest_pts = np.clip(pts, bbox_min, bbox_max)
@@ -61,11 +59,9 @@ class NSVFDataset(BaseDataset):
 
 def load_bbox(
     dataset_cfg: DatasetConfig,
-    scale_box: bool = True
-):
-    # TODO: Implement bbox object
-
-    # bbox_path = dataset_cfg.root_path / 'bbox.txt'
-    # bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
-    # return bbox_min, bbox_max, None
-    raise NotImplementedError
+    _
+) -> RegularBBox:
+    bbox_path = dataset_cfg.root_path / 'bbox.txt'
+    bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
+    bbox = RegularBBox(bbox_min, bbox_max)
+    return bbox

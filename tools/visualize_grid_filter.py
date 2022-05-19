@@ -60,9 +60,9 @@ def main():
 
     def update(z):
         ax1.clear()
-        ax1.imshow(grid[:, :, z])
+        ax1.imshow(grid[:, :, z], vmin=0., vmax=1.)
         ax2.clear()
-        ax2.imshow(net_grid[:, :, z // 16] > 10)
+        ax2.imshow(net_grid[:, :, z // 16] > 10, vmin=0., vmax=1.)
 
     update(0)  # Initial plot
 
