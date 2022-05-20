@@ -100,6 +100,20 @@ class TensorModule(torch.nn.Module):
         return super()._apply(fn)
 
 
+class RegularBBox(TensorModule):
+    def __init__(
+        self,
+        bbox_min: np.ndarray,
+        bbox_max: np.ndarray
+    ) -> None:
+        super().__init__()
+        self.min_pt = bbox_min
+        self.max_pt = bbox_max
+
+    def forward(self):
+        raise NotImplementedError
+
+
 class RotatedBBox(TensorModule):
     def __init__(
         self,

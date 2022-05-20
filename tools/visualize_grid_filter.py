@@ -30,6 +30,8 @@ def main():
 
     grid_dims = grid.shape
     net_dims = cfg.net_res
+    assert np.all(np.array(net_dims) * 16 == np.array(grid_dims)), \
+        'config and occ_map dims not match'
     x_coords = np.linspace(0, grid_dims[0], net_dims[0]+1).astype(int)
     y_coords = np.linspace(0, grid_dims[1], net_dims[1]+1).astype(int)
     z_coords = np.linspace(0, grid_dims[2], net_dims[2]+1).astype(int)
@@ -58,9 +60,9 @@ def main():
 
     def update(z):
         ax1.clear()
-        ax1.imshow(grid[:, :, z])
+        ax1.imshow(grid[:, :, z], vmin=0., vmax=1.)
         ax2.clear()
-        ax2.imshow(net_grid[:, :, z // 16] > 10)
+        ax2.imshow(net_grid[:, :, z // 16] > 10, vmin=0., vmax=1.)
 
     update(0)  # Initial plot
 
