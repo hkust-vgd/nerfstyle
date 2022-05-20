@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 import einops
-from importlib_metadata import pathlib
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -20,7 +19,6 @@ from data import load_bbox
 from networks.nerf import Nerf, SingleNerf
 from networks.multi_nerf import StaticMultiNerf
 import utils
-
 
 patch_typeguard()
 
@@ -173,7 +171,8 @@ class DistillTrainer(Trainer):
             if args.occ_map is not None:
                 occ_map = OccupancyGrid.load(args.occ_map, self.logger).to(self.device)
                 for node in tqdm(self.root_nodes):
-                    pts = torch.tensor(np.stack([node.min_pt, node.max_pt]),
+                    eps = 1E-5
+                    pts = torch.tensor(np.stack([node.min_pt, node.max_pt]) + eps,
                                        dtype=torch.float32, device=self.device)
                     indices = occ_map.pts_to_indices(pts)
                     start, end = indices.cpu().numpy()
@@ -190,6 +189,16 @@ class DistillTrainer(Trainer):
                 active_count, int(np.ceil(active_count / self.train_cfg.distill.nets_bsize))))
         else:
             self.load_ckpt(args.ckpt_path)
+
+            if args.retrain is not None:
+                with open(args.retrain, 'r') as f:
+                    retrain = [line[:-1] for line in f]
+
+                retrain_nodes = [node for node in self.trained_nodes if node.idx in retrain]
+                for node in retrain_nodes:
+                    self.trained_nodes.remove(node)
+                    node.log_path = self.test_log_dir / node.log_path.name
+                    self.nodes_queue.append(node)
 
         # Load teacher model
         if args.teacher_ckpt_path is None:
