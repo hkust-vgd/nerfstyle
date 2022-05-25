@@ -45,7 +45,9 @@ class Trainer(ABC):
             self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 
         self.device = torch.device('cuda:0')
-        nerf_lib.init(self.net_cfg, self.train_cfg, self.device)
+
+        nerf_lib.device = self.device
+        nerf_lib.load_cuda_ext()
         nerf_lib.init_stream_pool(16)
         nerf_lib.init_magma()
 

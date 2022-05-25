@@ -7,26 +7,46 @@ import torch.nn.functional as F
 from torch.utils.cpp_extension import load
 from torchtyping import TensorType
 
-from config import NetworkConfig, TrainConfig
-from data.nsvf_dataset import NSVFDataset as Dataset
-from common import RayBatch
+from common import Intrinsics, RayBatch
 import utils
+
+
+def assert_ready(func):
+    def new_func(self, *args, **kwargs):
+        assert self._ready, 'Please assign a GPU to nerf_lib.device first.'
+        return func(self, *args, **kwargs)
+
+    return new_func
 
 
 class NerfLib:
     EXT_NAME = 'nerf_cuda_lib'
     EXT_MAIN_CPP_FN = 'nerf_lib.cpp'
 
-    def __init__(self, net_cfg: NetworkConfig, train_cfg: TrainConfig, device):
-        self.net_cfg = net_cfg
-        self.train_cfg = train_cfg
-        self.device = device
+    def __init__(self):
+        self._device = None
+        self._ready = False
 
-        # Load cuda
+    @property
+    def device(self):
+        return self._device
+
+    @device.setter
+    def device(self, device: torch.device):
+        assert device.type == 'cuda', 'Device must be GPU'
+        self._device = device
+        self._ready = True
+
+    @assert_ready
+    def load_cuda_ext(self) -> None:
+        """
+        Activate GPU mode for NeRF library object.
+        """
         cuda_lib = self._load_cuda_ext()
         for method in dir(cuda_lib):
             if method[:2] == '__':
                 continue
+            # Overload all functions from CUDA extension.
             setattr(self, method, getattr(cuda_lib, method))
 
     @staticmethod
@@ -46,34 +66,32 @@ class NerfLib:
         )
         return cuda_ext
 
+    @assert_ready
     def generate_rays(
         self,
         pose: TensorType[4, 4],
-        dataset: Dataset,
+        intr: Intrinsics,
         img: Optional[TensorType['H', 'W', 3]] = None,
-        precrop: Optional[float] = None,
+        precrop: float = 1.,
         bsize: Optional[int] = None,
         grid_dims: Optional[Tuple[int, int]] = None
-    ) -> Tuple[TensorType['K', 3], RayBatch]:
+    ) -> Tuple[RayBatch, Optional[TensorType['K', 3]]]:
         """Generate a batch of rays.
 
         Args:
-            img (TensorType[3, 'H', 'W']): Ground truth image.
             pose (TensorType[4, 4]): Camera-to-world transformation matrix.
-            dataset (Dataset): Dataset object.
+            intr (Intrinsics): Intrinsics data for render camera.
             img (Optional[TensorType['h', 'w', 3]]): Ground truth image.
-            precrop (Optional[float]): Precrop factor; None if not specified.
+            precrop (float): Square cropping factor. Defaults to 1.0 (no cropping).
             bsize (Optional[int]): Size of ray batch. All rays are used if not specified.
             grid_dims (Optional[Tuple[int, int]]): Dimension of sampling grid. If None, the output
                 image dimensions are used.
 
         Returns:
             rays (RayBatch): A batch of K rays.
-            target (TensorType['K', 3]): Pixel values corresponding to rays.
+            target (Optional[TensorType['K', 3]]): Pixel values corresponding to rays.
         """
-
-        intr = dataset.intrinsics
-        near, far = dataset.near, dataset.far
+        assert (precrop >= 0.) and (precrop <= 1.)
         target = None
 
         fh, fw = intr.h, intr.w
@@ -87,7 +105,7 @@ class NerfLib:
         dx, dy = 0, 0
         pose_r, pose_t = pose[:3, :3], pose[:3, 3]
 
-        if precrop is not None:
+        if precrop < 1.:
             # TODO: Verify if dims paramter work
             assert grid_dims is None
             w, h = int(intr.w * precrop), int(intr.h * precrop)
@@ -100,7 +118,7 @@ class NerfLib:
         # Pixel coords to camera frame
         dirs = torch.tensor(np.stack([
             (i - intr.cx) / intr.fx, (j - intr.cy) / intr.fy, k
-        ], axis=-1), device=self.device)
+        ], axis=-1), device=self._device)
 
         # Camera frame to world frame
         rays_d = torch.einsum('ij, hwj -> hwi', pose_r, dirs)
@@ -120,12 +138,16 @@ class NerfLib:
             if img is not None:
                 target = img[coords]
 
-        rays = RayBatch(pose_t, rays_d, near, far)
+        rays = RayBatch(pose_t, rays_d)
         return rays, target
 
+    @assert_ready
     def sample_points(
         self,
-        rays: RayBatch
+        rays: RayBatch,
+        near: float,
+        far: float,
+        num_samples: int
     ) -> Tuple[TensorType['N', 'K', 3], TensorType['N', 'K']]:
         """Given a batch of N rays, sample K points per ray.
 
@@ -135,21 +157,24 @@ class NerfLib:
         Returns:
             pts (TensorType[N, K, 3]): Coordinates of the samples.
             dists (TensorType[N, K]): Distances between samples.
+            near (float): Distance from origin to start sampling points.
+            far (float): Distance from origin to stop sampling points.
+            num_samples (int): No. of point samples per ray.
         """
-        n_samples = self.net_cfg.num_samples_per_ray
-        z_vals = torch.linspace(rays.near, rays.far, steps=(n_samples + 1)).to(self.device)
-        z_vals = z_vals.expand([len(rays), n_samples + 1])
+        z_vals = torch.linspace(near, far, steps=(num_samples + 1)).to(self._device)
+        z_vals = z_vals.expand([len(rays), num_samples + 1])
 
         lower = z_vals[:, :-1]
         upper = z_vals[:, 1:]
-        t_rand = torch.rand(lower.shape).to(self.device)
+        t_rand = torch.rand(lower.shape).to(self._device)
         z_vals = lower + (upper - lower) * t_rand
         pts = rays.lerp(z_vals)
 
         dists = z_vals[..., 1:] - z_vals[..., :-1]
-        dists = torch.cat([dists, torch.ones((len(dists), 1)).to(self.device) * 1e10], dim=-1)
+        dists = torch.cat([dists, torch.ones((len(dists), 1)).to(self._device) * 1e10], dim=-1)
         return pts, dists
 
+    @assert_ready
     def integrate_points(
         self,
         dists: TensorType['N', 'K'],
@@ -172,7 +197,7 @@ class NerfLib:
         alpha = utils.density2alpha(densities, dists)
         # 1, (1 - a_1), ..., (1 - a_(K-1))
         alpha_tmp = torch.cat([
-            torch.ones((len(alpha), 1)).to(self.device),
+            torch.ones((len(alpha), 1)).to(self._device),
             (1. - alpha[:, :-1])
         ], dim=-1)
         ts = torch.cumprod(alpha_tmp, dim=-1)
@@ -184,8 +209,9 @@ class NerfLib:
         rgb_map = rgb_map + res * bg_color
         return rgb_map
 
-    @staticmethod
+    @assert_ready
     def global_to_local(
+        self,
         points: TensorType['batch_size', 3],
         mid_points: TensorType['num_nets', 3],
         voxel_size: TensorType[3],
@@ -200,39 +226,26 @@ class NerfLib:
         return local_points
 
     # Stub CUDA methods
-    @staticmethod
-    def init_stream_pool(_):
+    @assert_ready
+    def init_stream_pool(*_):
         pass
 
-    @staticmethod
-    def destroy_stream_pool():
+    @assert_ready
+    def destroy_stream_pool(_):
         pass
 
-    @staticmethod
-    def init_magma():
+    @assert_ready
+    def init_magma(_):
         pass
 
-    @staticmethod
+    @assert_ready
     def init_multimatmul_aux_data(*_):
         return None
 
-    @staticmethod
-    def deinit_multimatmul_aux_data():
+    @assert_ready
+    def deinit_multimatmul_aux_data(_):
         pass
 
 
-class NerfLibManager:
-    def __init__(self) -> None:
-        self._lib = None
-
-    def init(self, net_cfg: NetworkConfig, train_cfg: TrainConfig, device):
-        self._lib = NerfLib(net_cfg, train_cfg, device)
-
-    def __getattr__(self, name):
-        if self._lib is None:
-            raise RuntimeError('Library not initialized; run "init()" first')
-        return getattr(self._lib, name)
-
-
 # Global instance
-nerf_lib = NerfLibManager()
+nerf_lib = NerfLib()

@@ -68,12 +68,14 @@ class End2EndTrainer(Trainer):
         self.logger.info('Loaded ' + str(self.test_set))
 
         # Initialize renderers
+        intr = self.train_set.intrinsics
+        near, far = self.train_set.near, self.train_set.far
+
         self.train_renderer = Renderer(
-            self.model, self.train_set, self.net_cfg, self.train_cfg,
-            all_rays=True, reduce_size=True)
+            self.model, self.net_cfg, intr, near, far,
+            precrop_frac=self.train_cfg.precrop_fraction, reduce_size=True)
         self.test_renderer = Renderer(
-            self.model, self.test_set, self.net_cfg, self.train_cfg,
-            all_rays=True, reduce_size=False)
+            self.model, self.net_cfg, intr, near, far, reduce_size=False)
 
         # Intialize losses and style image
         self.fe = FeatureExtractor().to(self.device)
@@ -224,7 +226,7 @@ class End2EndTrainer(Trainer):
         img, pose = next(self.train_loader)
         img, pose = img.to(self.device), pose.to(self.device)
 
-        self.train_renderer.precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
+        self.train_renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
         ret_flags = ['densities', 'pts']
         output = self.train_renderer.render(pose, img, ret_flags)
 

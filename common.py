@@ -53,12 +53,6 @@ class RayBatch:
     dests: np.ndarray
     """(N, 3) array. Direction vectors of rays relative to origin."""
 
-    near: float
-    """Closest distance of object box from any ray origin."""
-
-    far: float
-    """Furthest distance of object box from any ray origin."""
-
     def __post_init__(self):
         # Normalize the rays to unit vectors
         assert len(self.dests.shape) == 2

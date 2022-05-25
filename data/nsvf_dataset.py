@@ -9,13 +9,8 @@ import utils
 
 
 class NSVFDataset(BaseDataset):
-    def __init__(
-        self,
-        dataroot: Union[str, Path],
-        split: str,
-        skip: int = 1
-    ):
-        super().__init__(dataroot, split, skip)
+    def __init__(self, *args):
+        super().__init__(*args)
 
         root = self.cfg.root_path
         rgb_dir = root / 'rgb'
@@ -24,14 +19,17 @@ class NSVFDataset(BaseDataset):
         nf_path = root / 'near_and_far.txt'
 
         split_prefix = {'train': 0, 'val': 1, 'test': 2}
-        self.rgb_paths = sorted(rgb_dir.glob('{}_*.png'.format(split_prefix[split])))
-        self.pose_paths = sorted(pose_dir.glob('{}_*.txt'.format(split_prefix[split])))
+        self.rgb_paths = sorted(rgb_dir.glob('{}_*.png'.format(split_prefix[self.split])))
+        self.pose_paths = sorted(pose_dir.glob('{}_*.txt'.format(split_prefix[self.split])))
         assert len(self.rgb_paths) == len(self.pose_paths)
         assert all([fn1.stem == fn2.stem for fn1, fn2 in zip(self.rgb_paths, self.pose_paths)])
 
-        if skip > 1:
-            self.rgb_paths = self.rgb_paths[::skip]
-            self.pose_paths = self.pose_paths[::skip]
+        if self.skip > 1:
+            self.rgb_paths = self.rgb_paths[::self.skip]
+            self.pose_paths = self.pose_paths[::self.skip]
+        if self.max_count >= 0:
+            self.rgb_paths = self.rgb_paths[:self.max_count]
+            self.pose_paths = self.pose_paths[:self.max_count]
 
         self.imgs = np.stack([utils.parse_rgb(path) for path in self.rgb_paths])
         self.poses = np.stack([utils.load_matrix(path) for path in self.pose_paths], axis=0)

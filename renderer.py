@@ -2,8 +2,8 @@ from typing import List, Optional, Tuple, TypeVar
 import torch
 from torchtyping import TensorType
 
-from config import NetworkConfig, TrainConfig
-from data.base_dataset import BaseDataset
+from common import Intrinsics
+from config import NetworkConfig
 from nerf_lib import nerf_lib
 from networks.nerf import Nerf
 import utils
@@ -15,35 +15,49 @@ class Renderer:
     def __init__(
         self: T,
         model: Nerf,
-        dataset: BaseDataset,
         net_cfg: NetworkConfig,
-        train_cfg: TrainConfig,
-        all_rays: bool = True,
+        intr: Intrinsics,
+        near: float,
+        far: float,
+        precrop_frac: float = 1.,
+        num_rays: Optional[int] = None,
         reduce_size: bool = False
     ) -> None:
-        """NeRF renderer.
+        """
+        NeRF renderer.
 
         Args:
             model (Nerf): Backbone model.
-            dataset (BaseDataset): Dataset which the model is trained on.
             net_cfg (NetworkConfig): Network configuration.
-            train_cfg (TrainConfig): Training configuration.
-            all_rays (bool, optional): If True, renders all rays in the image; if False, renders a
-                randomized subset of rays. Defaults to True.
+            intr (Intrinsics): Render camera intrinsics.
+            near (float): Near plane distance.
+            far (float): Far plane distance.
         """
         super().__init__()
         self.model = model
-        self.dataset = dataset
         self.net_cfg = net_cfg
-        self.train_cfg = train_cfg
 
-        self.precrop = False
-        self.all_rays = all_rays
+        self.intr = intr
+        self.near = near
+        self.far = far
+
+        self._use_precrop = False
+        self.precrop_frac = precrop_frac
+
+        self.num_rays = num_rays
         self.reduce_size = reduce_size
         self.device = self.model.device
 
         # Set BG color as white
         self.bg_color = torch.ones(3, device='cuda')
+
+    @property
+    def use_precrop(self):
+        return self._use_precrop
+
+    @use_precrop.setter
+    def use_precrop(self, value: bool):
+        self._use_precrop = value
 
     def render(
         self: T,
@@ -75,21 +89,17 @@ class Renderer:
             ret_flags = []
 
         # Generate rays
-        precrop_frac, rays_bsize = None, None
-        if self.precrop:
-            precrop_frac = self.train_cfg.precrop_fraction
-        if not self.all_rays:
-            rays_bsize = self.train_cfg.num_rays_per_batch
-
+        precrop_frac = self.precrop_frac if self._use_precrop else 1.
         grid_dims = (256, 256) if self.reduce_size else None
         rays, output['target'] = nerf_lib.generate_rays(
-            pose, self.dataset, img, precrop=precrop_frac, bsize=rays_bsize, grid_dims=grid_dims)
+            pose, self.intr, img, precrop=precrop_frac, bsize=self.num_rays, grid_dims=grid_dims)
         dirs = rays.viewdirs()
 
         # Sample points
-        pts, dists = nerf_lib.sample_points(rays)
+        num_samples = self.net_cfg.num_samples_per_ray
+        pts, dists = nerf_lib.sample_points(rays, self.near, self.far, num_samples)
         pts_flat = pts.reshape(-1, 3)
-        dirs_flat = torch.repeat_interleave(dirs, repeats=self.net_cfg.num_samples_per_ray, dim=0)
+        dirs_flat = torch.repeat_interleave(dirs, repeats=num_samples, dim=0)
 
         # Evaluate model
         # TODO: fix hardcode
