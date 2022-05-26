@@ -205,8 +205,27 @@ def parse_rgb(
     return img_np
 
 
-def print_memory_usage(msg, device=None, unit='MB'):
-    print(msg, ': ', format_bytes(torch.cuda.memory_allocated(device), unit=unit))
+def print_memory_usage(
+    desc: str,
+    device: Optional[torch.device] = None,
+    unit: str = 'MB'
+) -> None:
+    """
+    Prints current allocated and cached memory in a GPU device.
+    - Use `del` to remove unneeded variables if too much memory is allocated.
+    - Use `torch.cuda.empty_cache()` to free up cache space.
+
+    Args:
+        desc (str): Description of location where this function is called.
+        device (Optional[torch.device], optional): Device for checking. Defaults to None (uses
+            current device).
+        unit (str, optional): Unit for formatting, must be in [B, KB, MB, GB]. Defaults to 'MB'.
+    """
+    mem_allocated = format_bytes(torch.cuda.memory_allocated(device), unit=unit)
+    mem_cached = format_bytes(torch.cuda.memory_reserved(device), unit=unit)
+
+    msg = '{}: Allocated - {}, Cached - {}'.format(desc, mem_allocated, mem_cached)
+    print(msg)
 
 
 def prompt_bool(msg):

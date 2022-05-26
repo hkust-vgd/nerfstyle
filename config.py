@@ -147,7 +147,10 @@ class NetworkConfig(Config):
     """No. of samples per ray."""
 
     pts_bsize: int
-    """No. of points to be parsed by the network at the same time."""
+    """Batch size of point samples for evaluating the MLP network."""
+
+    pixels_bsize: int
+    """Batch size of pixels for integrating the volumetric rendering equation."""
 
     default_path = 'cfgs/network/default.yaml'
 

@@ -89,7 +89,7 @@ class DynamicMultiNerf(MultiNerf):
     def __init__(
         self,
         dataset_cfg: DatasetConfig,
-        *params,
+        network_seed: int,
         **nerf_params
     ) -> None:
         """
@@ -97,8 +97,8 @@ class DynamicMultiNerf(MultiNerf):
         sub-network based on its position. Each sub-network receives an unequal no. of input
         samples. Used during finetuning stage and inference.
         """
-
-        super().__init__(*params, **nerf_params)
+        num_nets = np.prod(dataset_cfg.net_res)
+        super().__init__(num_nets, network_seed, **nerf_params)
         self.occ_map = None
 
         # For dynamic evaluation
@@ -122,7 +122,6 @@ class DynamicMultiNerf(MultiNerf):
     @classmethod
     def create_nerf(
         cls,
-        num_nets: int,
         net_cfg: NetworkConfig,
         dataset_cfg: DatasetConfig
     ) -> DynamicMultiNerf:
@@ -130,7 +129,6 @@ class DynamicMultiNerf(MultiNerf):
         Create new NeRF multi-network using default KiloNeRF architecture.
 
         Args:
-            num_nets (int): Total number of sub-networks.
             net_cfg (NetworkConfig): Config object for network hyperparameters.
             dataset_cfg (DatasetConfig): Config object for dataset hyperparameters.
 
@@ -138,7 +136,7 @@ class DynamicMultiNerf(MultiNerf):
             DynamicMultiNerf: MultiNeRF model.
         """
         nerf_config = super()._get_default_config(net_cfg)
-        model = cls(dataset_cfg, num_nets, net_cfg.network_seed, **nerf_config)
+        model = cls(dataset_cfg, net_cfg.network_seed, **nerf_config)
         return model
 
     @staticmethod

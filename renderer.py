@@ -1,4 +1,5 @@
-from typing import List, Optional, Tuple, TypeVar
+from functools import partial
+from typing import Dict, List, Optional, TypeVar
 import torch
 from torchtyping import TensorType
 
@@ -19,6 +20,7 @@ class Renderer:
         intr: Intrinsics,
         near: float,
         far: float,
+        name: str = 'Renderer',
         precrop_frac: float = 1.,
         num_rays: Optional[int] = None,
         reduce_size: bool = False
@@ -36,6 +38,7 @@ class Renderer:
         super().__init__()
         self.model = model
         self.net_cfg = net_cfg
+        self.logger = utils.create_logger(name)
 
         self.intr = intr
         self.near = near
@@ -51,20 +54,25 @@ class Renderer:
         # Set BG color as white
         self.bg_color = torch.ones(3, device='cuda')
 
+        self.logger.info('Renderer "{}" initialized'.format(name))
+
     @property
     def use_precrop(self):
         return self._use_precrop
 
     @use_precrop.setter
     def use_precrop(self, value: bool):
-        self._use_precrop = value
+        if value != self._use_precrop:
+            msg = 'Turining {} square cropping'.format('on' if value else 'off')
+            self.logger.info(msg)
+            self._use_precrop = value
 
     def render(
         self: T,
         pose: TensorType[4, 4],
         img: Optional[TensorType['H', 'W', 3]] = None,
         ret_flags: Optional[List[str]] = None
-    ) -> Tuple[TensorType[..., 3], TensorType[..., 3]]:
+    ) -> Dict[str, torch.Tensor]:
         """Render a new image, given a camera pose.
 
         Args:
@@ -84,6 +92,7 @@ class Renderer:
 
                 (*) Included if specified in 'ret_flags'.
         """
+        torch.cuda.empty_cache()
         output = {}
         if ret_flags is None:
             ret_flags = []
@@ -118,8 +127,14 @@ class Renderer:
         rgb_c, rgb_s = torch.split(rgbs, [3, 3], dim=-1)
         del rgbs
 
-        output['rgb_map'] = nerf_lib.integrate_points(dists, rgb_c, densities, self.bg_color)
-        output['style_map'] = nerf_lib.integrate_points(dists, rgb_s, densities, self.bg_color)
+        integrate_bsize = self.net_cfg.pixels_bsize
+        integrate_fn = partial(nerf_lib.integrate_points, bg_color=self.bg_color)
+        output['rgb_map'] = torch.empty((len(rgb_c), 3), device=self.device)
+        output['style_map'] = torch.empty((len(rgb_s), 3), device=self.device)
+        utils.batch_exec(integrate_fn, output['rgb_map'],
+                         bsize=integrate_bsize)(dists, rgb_c, densities)
+        utils.batch_exec(integrate_fn, output['style_map'],
+                         bsize=integrate_bsize)(dists, rgb_s, densities)
 
         output['rgb_c'] = rgb_c if 'rgb_c' in ret_flags else None
         output['rgb_s'] = rgb_s if 'rgb_s' in ret_flags else None

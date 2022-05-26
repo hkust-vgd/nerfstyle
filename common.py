@@ -1,4 +1,6 @@
+from __future__ import annotations
 from dataclasses import dataclass
+
 import numpy as np
 import torch
 from torchtyping import TensorType, patch_typeguard
@@ -29,6 +31,30 @@ class Intrinsics:
 
     cy: float
     """Camera center offset in Y-axis."""
+
+    def scale(self, w: int, h: int) -> Intrinsics:
+        """
+        Rescales intrinsic matrix to new dimensions. If aspect ratio is different, focal
+        length is rescaled to shorter edge.
+
+        Args:
+            w (int): New width.
+            h (int): New height.
+
+        Returns:
+            Intrinsics: New intrinsic matrix object.
+        """
+        cx = w / 2.
+        cy = h / 2.
+
+        old_ar = self.w / self.h
+        new_ar = w / h
+        ratio = h / self.h if new_ar >= old_ar else w / self.w
+        fx = self.fx * ratio
+        fy = self.fy * ratio
+
+        intr = Intrinsics(h, w, fx, fy, cx, cy)
+        return intr
 
 
 @dataclass

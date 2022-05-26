@@ -28,8 +28,7 @@ class End2EndTrainer(Trainer):
         if args.mode == 'pretrain':
             self.model = SingleNerf.create_nerf(self.net_cfg)
         elif args.mode == 'finetune':
-            num_nets = np.prod(self.dataset_cfg.net_res)
-            self.model = DynamicMultiNerf.create_nerf(num_nets, self.net_cfg, self.dataset_cfg)
+            self.model = DynamicMultiNerf.create_nerf(self.net_cfg, self.dataset_cfg)
         self.model = self.model.to(self.device)
         self.logger.info('Created model ' + str(self.model))
 
@@ -73,9 +72,9 @@ class End2EndTrainer(Trainer):
 
         self.train_renderer = Renderer(
             self.model, self.net_cfg, intr, near, far,
-            precrop_frac=self.train_cfg.precrop_fraction, reduce_size=True)
+            precrop_frac=self.train_cfg.precrop_fraction, reduce_size=True, name='trainRenderer')
         self.test_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, reduce_size=False)
+            self.model, self.net_cfg, intr, near, far, reduce_size=False, name='testRenderer')
 
         # Intialize losses and style image
         self.fe = FeatureExtractor().to(self.device)
@@ -90,7 +89,10 @@ class End2EndTrainer(Trainer):
         if self.train_cfg.bbox_lambda > 0.0:
             self.bbox = load_bbox(self.dataset_cfg, scale_box=False).to(self.device)
 
-    def calc_loss(self, output: Dict[str, torch.Tensor]):
+    def calc_loss(
+        self,
+        output: Dict[str, torch.Tensor]
+    ) -> Dict[str, LossValue]:
         assert output['target'] is not None
 
         nc2chw = partial(einops.rearrange, pattern='(h w) c -> c h w', h=256, w=256)
@@ -165,14 +167,6 @@ class End2EndTrainer(Trainer):
 
             self.iter_ctr = ckpt['iter']
             self.model.load_ckpt(ckpt)
-            # ['state', 'param_groups']
-
-            # TODO: Fix optimizer later
-            # ckpt['optim']['state'][12] = ckpt['optim']['state'][10]
-            # ckpt['optim']['state'][13] = ckpt['optim']['state'][11]
-            # params = ckpt['optim']['param_groups'][0]['params']
-            # ckpt['optim']['param_groups'][0]['params'] = params + [12, 13]
-            # self.optim.load_state_dict(ckpt['optim'])
 
             rng_states = ckpt['rng_states']
             np.random.set_state(rng_states['np'])

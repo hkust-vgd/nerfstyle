@@ -10,7 +10,7 @@ net_res:
 - 14
 replica_cfg:
   name: office4
-  near: 0.5
+  near: 0.05
   far: 8.0
   focal_ratio: 0.5
   traj_ids: [33, 42, 43]
