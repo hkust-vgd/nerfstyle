@@ -22,8 +22,7 @@ class Renderer:
         far: float,
         name: str = 'Renderer',
         precrop_frac: float = 1.,
-        num_rays: Optional[int] = None,
-        reduce_size: bool = False
+        num_rays: Optional[int] = None
     ) -> None:
         """
         NeRF renderer.
@@ -48,7 +47,6 @@ class Renderer:
         self.precrop_frac = precrop_frac
 
         self.num_rays = num_rays
-        self.reduce_size = reduce_size
         self.device = self.model.device
 
         # Set BG color as white
@@ -99,9 +97,8 @@ class Renderer:
 
         # Generate rays
         precrop_frac = self.precrop_frac if self._use_precrop else 1.
-        grid_dims = (256, 256) if self.reduce_size else None
         rays, output['target'] = nerf_lib.generate_rays(
-            pose, self.intr, img, precrop=precrop_frac, bsize=self.num_rays, grid_dims=grid_dims)
+            pose, self.intr, img, precrop=precrop_frac, bsize=self.num_rays)
         dirs = rays.viewdirs()
 
         # Sample points

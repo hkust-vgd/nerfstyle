@@ -73,8 +73,7 @@ class NerfLib:
         intr: Intrinsics,
         img: Optional[TensorType['H', 'W', 3]] = None,
         precrop: float = 1.,
-        bsize: Optional[int] = None,
-        grid_dims: Optional[Tuple[int, int]] = None
+        bsize: Optional[int] = None
     ) -> Tuple[RayBatch, Optional[TensorType['K', 3]]]:
         """Generate a batch of rays.
 
@@ -84,8 +83,6 @@ class NerfLib:
             img (Optional[TensorType['h', 'w', 3]]): Ground truth image.
             precrop (float): Square cropping factor. Defaults to 1.0 (no cropping).
             bsize (Optional[int]): Size of ray batch. All rays are used if not specified.
-            grid_dims (Optional[Tuple[int, int]]): Dimension of sampling grid. If None, the output
-                image dimensions are used.
 
         Returns:
             rays (RayBatch): A batch of K rays.
@@ -94,20 +91,16 @@ class NerfLib:
         assert (precrop >= 0.) and (precrop <= 1.)
         target = None
 
+        # Symmetric samples in pixel coords system: [0.5, 1.5, 2.5, ...]
         fh, fw = intr.h, intr.w
-        if grid_dims is not None:
-            fh, fw = grid_dims
-
-        x_coords = np.linspace(0, intr.w, num=2*fw+1, dtype=np.float32)[1::2]
-        y_coords = np.linspace(0, intr.h, num=2*fh+1, dtype=np.float32)[1::2]
+        x_coords = np.linspace(0, fw, num=2*fw+1, dtype=np.float32)[1::2]
+        y_coords = np.linspace(0, fh, num=2*fh+1, dtype=np.float32)[1::2]
 
         w, h = intr.w, intr.h
         dx, dy = 0, 0
         pose_r, pose_t = pose[:3, :3], pose[:3, 3]
 
         if precrop < 1.:
-            # TODO: Verify if dims paramter work
-            assert grid_dims is None
             w, h = int(intr.w * precrop), int(intr.h * precrop)
             dx, dy = (intr.w - w) // 2, (intr.h - h) // 2
             x_coords, y_coords = x_coords[dx:dx+w], y_coords[dy:dy+h]
@@ -129,8 +122,6 @@ class NerfLib:
                 img = F.interpolate(img.unsqueeze(0), size=(fh, fw)).squeeze(0)
                 target = einops.rearrange(img, 'c h w -> (h w) c')
         else:
-            # TODO: Verify if dims paramter work
-            assert grid_dims is None
             indices_1d = np.random.choice(np.arange(w * h), bsize, replace=False)
             indices_2d = (indices_1d // h, indices_1d % h)
             coords = (indices_2d[0] + dy, indices_2d[1] + dx)

@@ -68,13 +68,14 @@ class End2EndTrainer(Trainer):
 
         # Initialize renderers
         intr = self.train_set.intrinsics
+        sparse_intr = intr.scale(w=256, h=256)
         near, far = self.train_set.near, self.train_set.far
 
         self.train_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far,
-            precrop_frac=self.train_cfg.precrop_fraction, reduce_size=True, name='trainRenderer')
+            self.model, self.net_cfg, sparse_intr, near, far,
+            precrop_frac=self.train_cfg.precrop_fraction, name='trainRenderer')
         self.test_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, reduce_size=False, name='testRenderer')
+            self.model, self.net_cfg, intr, near, far, name='testRenderer')
 
         # Intialize losses and style image
         self.fe = FeatureExtractor().to(self.device)
