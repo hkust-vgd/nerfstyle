@@ -30,7 +30,7 @@ def main():
                         default='pretrain')
     parser.add_argument('--out-dir', default='./outputs')
     parser.add_argument('--occ-map')
-    parser.add_argument('--out-dims', nargs=2, type=int)
+    parser.add_argument('--out-dims', nargs=2, type=int, metavar=('WIDTH', 'HEIGHT'))
     args, nargs = parser.parse_known_args()
 
     logger = utils.create_logger(__name__)
@@ -58,16 +58,18 @@ def main():
 
     if args.mode == 'pretrain':
         model = SingleNerf.create_nerf(net_cfg)
-    elif args.mode == 'finetune':
-        model = DynamicMultiNerf.create_nerf(net_cfg, dataset_cfg)
     else:
-        raise NotImplementedError
+        model = DynamicMultiNerf.create_nerf(net_cfg, dataset_cfg)
     model = model.to(device)
     logger.info('Created model ' + str(model))
 
     @utils.loader(logger)
     def _load(ckpt_path):
         ckpt = torch.load(ckpt_path)
+        if args.mode == 'distill':
+            model.load_nodes(ckpt['trained'])
+            logger.info('Loaded distill checkpoint \"{}\"'.format(ckpt_path))
+            return
         model.load_ckpt(ckpt)
 
         rng_states = ckpt['rng_states']
