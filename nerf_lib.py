@@ -124,10 +124,10 @@ class NerfLib:
         else:
             indices_1d = np.random.choice(np.arange(w * h), bsize, replace=False)
             indices_2d = (indices_1d // h, indices_1d % h)
-            coords = (indices_2d[0] + dy, indices_2d[1] + dx)
+            coords_y, coords_x = indices_2d[0] + dy, indices_2d[1] + dx
             rays_d = rays_d[indices_2d]
             if img is not None:
-                target = img[coords]
+                target = einops.rearrange(img, 'c h w -> h w c')[coords_y, coords_x]
 
         rays = RayBatch(pose_t, rays_d)
         return rays, target

@@ -61,7 +61,6 @@ class Nerf(TensorModule):
         self.x2d_layer = self.get_linear(x_width, d_widths[0])
         self.a_layer = self.get_linear(x_width, 1)
         self.c_layer = self.get_linear(d_widths[-1], 3)
-        self.s_layer = self.get_linear(d_widths[-1], 3)
 
         activations_dict = {
             'sigmoid': nn.Sigmoid(),
@@ -88,10 +87,6 @@ class Nerf(TensorModule):
         return super().to(device)
 
     def load_ckpt(self, ckpt):
-        if 's_layer.weight' not in ckpt['model'].keys():
-            ckpt['model']['s_layer.weight'] = ckpt['model']['c_layer.weight']
-            ckpt['model']['s_layer.bias'] = ckpt['model']['c_layer.bias']
-
         self.load_state_dict(ckpt['model'])
 
     def save_ckpt(self, ckpt):
@@ -122,10 +117,7 @@ class Nerf(TensorModule):
             out = self.actv(bind(layer)(out))
 
         c = torch.sigmoid(bind(self.c_layer)(out))
-        s = torch.sigmoid(bind(self.s_layer)(out))
-
-        c_out = torch.concat((c, s), dim=-1)
-        return c_out, a
+        return c, a
 
 
 class SingleNerf(Nerf):

@@ -1,6 +1,7 @@
+from argparse import Namespace
 from functools import partial
 import time
-from typing import Dict
+from typing import Dict, List, Tuple
 
 import einops
 import numpy as np
@@ -20,8 +21,19 @@ from trainers.base import Trainer
 import utils
 
 
-class End2EndTrainer(Trainer):
-    def __init__(self, args, nargs):
+class VolumetricTrainer(Trainer):
+    def __init__(
+        self,
+        args: Namespace,
+        nargs: List[str]
+    ) -> None:
+        """
+        Default volumetric rendering trainer.
+
+        Args:
+            args (Namespace): Command line arguments.
+            nargs (List[str]): Overwritten config parameters.
+        """
         super().__init__(__name__, args, nargs)
 
         # Initialize model
@@ -33,14 +45,15 @@ class End2EndTrainer(Trainer):
         self.logger.info('Created model ' + str(self.model))
 
         # Initialize optimizer
-        train_keys = ['x_layers', 'd_layers', 'x2d_layer', 'c_layer', 's_layer']
+        train_keys = None
+        # train_keys = ['x_layers', 'd_layers', 'x2d_layer', 'c_layer']
 
-        def trainable(key):
+        def trainable(key: str) -> bool:
+            if train_keys is None:
+                return True
             return any([(k in key) for k in train_keys])
 
-        train_params = self.model.named_parameters()
-        if train_keys is not None:
-            train_params = [p for n, p in train_params if trainable(n)]
+        train_params = [p for n, p in self.model.named_parameters() if trainable(n)]
 
         self.optim = torch.optim.Adam(
             params=train_params,
@@ -67,28 +80,25 @@ class End2EndTrainer(Trainer):
         self.logger.info('Loaded ' + str(self.test_set))
 
         # Initialize renderers
-        intr = self.train_set.intrinsics
-        sparse_intr = intr.scale(w=256, h=256)
-        near, far = self.train_set.near, self.train_set.far
-
-        self.train_renderer = Renderer(
-            self.model, self.net_cfg, sparse_intr, near, far,
-            precrop_frac=self.train_cfg.precrop_fraction, name='trainRenderer')
-        self.test_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, name='testRenderer')
-
-        # Intialize losses and style image
-        self.fe = FeatureExtractor().to(self.device)
-        assert args.style_image is not None
-        style_image_np = utils.parse_rgb(args.style_image, size=(256, 256))
-        self.style_image = torch.tensor(style_image_np, device=self.device)
-        self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
-        self.photo_loss = MattingLaplacian(device=self.device)
+        self.train_renderer, self.test_renderer = self._get_renderers()
 
         # Load bbox if needed
         self.bbox = None
         if self.train_cfg.bbox_lambda > 0.0:
             self.bbox = load_bbox(self.dataset_cfg, scale_box=False).to(self.device)
+
+    def _get_renderers(self) -> Tuple[Renderer, Renderer]:
+        intr = self.train_set.intrinsics
+        near, far = self.train_set.near, self.train_set.far
+
+        train_renderer = Renderer(
+            self.model, self.net_cfg, intr, near, far,
+            precrop_frac=self.train_cfg.precrop_fraction,
+            num_rays=self.train_cfg.num_rays_per_batch, name='trainRenderer')
+        test_renderer = Renderer(
+            self.model, self.net_cfg, intr, near, far, name='testRenderer')
+
+        return train_renderer, test_renderer
 
     def calc_loss(
         self,
@@ -96,30 +106,15 @@ class End2EndTrainer(Trainer):
     ) -> Dict[str, LossValue]:
         assert output['target'] is not None
 
-        nc2chw = partial(einops.rearrange, pattern='(h w) c -> c h w', h=256, w=256)
-        style_map_chw = nc2chw(output['style_map'])
-        target_chw = nc2chw(output['target'])
+        rendered = output['rgb_map']
+        target = output['target']
+        assert target is not None
 
-        rgb_s_feats = self.fe(style_map_chw)
-        target_feats = self.fe(target_chw)
-
-        mse_loss = torch.mean((output['rgb_map'] - output['target']) ** 2)
-        content_loss = F.mse_loss(rgb_s_feats['layer3'], target_feats['layer3'])
-        style_loss = self.style_loss(rgb_s_feats)
-        photo_loss = self.photo_loss(target_chw, style_map_chw)
-
-        content_loss *= self.train_cfg.content_lambda
-        style_loss *= self.train_cfg.style_lambda
-        photo_loss *= self.train_cfg.photo_lambda
-
+        mse_loss = torch.mean((rendered - target) ** 2)
         losses = {
             'mse': LossValue('MSE', 'mse_loss', mse_loss),
-            'psnr': LossValue('PSNR', 'psnr', utils.compute_psnr(mse_loss)),
-            'content': LossValue('Content', 'content_loss', content_loss),
-            'style': LossValue('Style', 'style_loss', style_loss),
-            'photo': LossValue('Photo', 'photo_loss', photo_loss),
+            'psnr': LossValue('PSNR', 'psnr', utils.compute_psnr(mse_loss))
         }
-        total_loss = mse_loss + content_loss + style_loss + photo_loss
 
         # Penalize positive densities outside bbox
         bbox_lambda = self.train_cfg.bbox_lambda
@@ -128,9 +123,10 @@ class End2EndTrainer(Trainer):
             pos_densities = F.relu(output['densities'].reshape(-1))
             bbox_loss = torch.mean(bbox_mask * pos_densities) * bbox_lambda
             losses['bbox'] = LossValue('BBox', 'bbox_loss', bbox_loss)
-            total_loss += bbox_loss
 
-        losses['total'] = LossValue('Total', 'total_loss', total_loss)
+            total_loss = mse_loss + bbox_loss
+            losses['total'] = LossValue('Total', 'total_loss', total_loss)
+
         return losses
 
     def print_status(
@@ -160,14 +156,9 @@ class End2EndTrainer(Trainer):
                 self.logger.info('Loaded distill checkpoint \"{}\"'.format(ckpt_path))
                 return
 
-            # TODO: Remove if all old models are fixed
-            if 'x_embedder.basis' not in ckpt['model'].keys():
-                ckpt['model']['x_embedder.basis'] = 2 ** torch.range(0, 9, device=self.device)
-            if 'd_embedder.basis' not in ckpt['model'].keys():
-                ckpt['model']['d_embedder.basis'] = 2 ** torch.range(0, 3, device=self.device)
-
             self.iter_ctr = ckpt['iter']
             self.model.load_ckpt(ckpt)
+            self.optim.load_state_dict(ckpt['optim'])
 
             rng_states = ckpt['rng_states']
             np.random.set_state(rng_states['np'])
@@ -208,13 +199,9 @@ class End2EndTrainer(Trainer):
             output = self.test_renderer.render(pose)
 
             _, h, w = img.shape
-            c_map = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
-            s_map = einops.rearrange(output['style_map'], '(h w) c -> c h w', h=h, w=w)
-
-            c_save_path = img_dir / 'frame_{:03d}.png'.format(i)
-            s_save_path = img_dir / 'style_{:03d}.png'.format(i)
-            torchvision.utils.save_image(c_map, c_save_path)
-            torchvision.utils.save_image(s_map, s_save_path)
+            rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
+            save_path = img_dir / 'frame_{:03d}.png'.format(i)
+            torchvision.utils.save_image(rgb_output, save_path)
 
     def run_iter(self):
         self.time0 = time.time()
@@ -251,3 +238,71 @@ class End2EndTrainer(Trainer):
             self.log_status(losses, new_lr)
         if self.check_interval(self.train_cfg.intervals.ckpt, final=True):
             self.save_ckpt()
+
+
+class StyleTrainer(VolumetricTrainer):
+    def __init__(
+        self,
+        args: Namespace,
+        nargs: List[str]
+    ) -> None:
+        """
+        Volumetric rendering trainer for style transfer.
+
+        Args:
+            args (Namespace): Command line arguments.
+            nargs (List[str]): Overwritten config parameters.
+        """
+        self.style_dims = (256, 256)
+        super().__init__(args, nargs)
+
+        # Intialize losses and style image
+        self.fe = FeatureExtractor().to(self.device)
+        style_image_np = utils.parse_rgb(args.style_image, size=self.style_dims)
+        self.style_image = torch.tensor(style_image_np, device=self.device)
+        self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
+        self.photo_loss = MattingLaplacian(device=self.device)
+
+    def _get_renderers(self) -> Tuple[Renderer, Renderer]:
+        intr = self.train_set.intrinsics
+        sparse_intr = intr.scale(*self.style_dims)
+        near, far = self.train_set.near, self.train_set.far
+
+        train_renderer = Renderer(
+            self.model, self.net_cfg, sparse_intr, near, far,
+            precrop_frac=self.train_cfg.precrop_fraction, name='trainRenderer')
+        test_renderer = Renderer(
+            self.model, self.net_cfg, intr, near, far, name='testRenderer')
+
+        return train_renderer, test_renderer
+
+    def calc_loss(
+        self,
+        output: Dict[str, torch.Tensor]
+    ) -> Dict[str, LossValue]:
+        assert output['target'] is not None
+
+        nc2chw = partial(einops.rearrange, pattern='(h w) c -> c h w', h=256, w=256)
+        rgb_map_chw = nc2chw(output['rgb_map'])
+        target_chw = nc2chw(output['target'])
+
+        rgb_feats = self.fe(rgb_map_chw)
+        target_feats = self.fe(target_chw)
+
+        content_loss = F.mse_loss(rgb_feats['layer3'], target_feats['layer3'])
+        style_loss = self.style_loss(rgb_feats)
+        photo_loss = self.photo_loss(target_chw, rgb_map_chw)
+
+        content_loss *= self.train_cfg.content_lambda
+        style_loss *= self.train_cfg.style_lambda
+        photo_loss *= self.train_cfg.photo_lambda
+
+        losses = {
+            'content': LossValue('Content', 'content_loss', content_loss),
+            'style': LossValue('Style', 'style_loss', style_loss),
+            'photo': LossValue('Photo', 'photo_loss', photo_loss),
+        }
+        total_loss = content_loss + style_loss + photo_loss
+
+        losses['total'] = LossValue('Total', 'total_loss', total_loss)
+        return losses

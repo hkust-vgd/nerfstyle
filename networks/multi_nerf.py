@@ -183,14 +183,9 @@ class DynamicMultiNerf(MultiNerf):
             self.is_active[idx] = True
             single_std = node['model']
             for name, module in self.named_modules():
-                # NOTE: Current strategy: intialize s_layer with c_layer weights
                 if isinstance(module, MultiLinear):
-                    single_name = name
-                    if name == 's_layer':
-                        single_name = 'c_layer'
-
-                    module.weight.data[idx] = single_std[single_name + '.weight']
-                    module.bias.data[idx, 0] = single_std[single_name + '.bias']
+                    module.weight.data[idx] = single_std[name + '.weight']
+                    module.bias.data[idx, 0] = single_std[name + '.bias']
 
         # Model is ready if sub-networks span the global domain
         self._ready = (
@@ -222,9 +217,8 @@ class DynamicMultiNerf(MultiNerf):
             net_indices = torch.where(self.occ_map(pts), net_indices, -1)
             valid = torch.sum(net_indices < 0).item()
 
-        # TODO: fix hardcode
         if (valid == len(pts)):
-            rgbs = torch.zeros((len(pts), 6), device=self.device)
+            rgbs = torch.zeros((len(pts), 3), device=self.device)
             densities = torch.zeros((len(pts), 1), device=self.device)
             return rgbs, densities
 
@@ -232,14 +226,13 @@ class DynamicMultiNerf(MultiNerf):
         counts = torch.bincount(net_indices[valid:], minlength=self.num_nets)
         sorted_pts, sorted_dirs = pts[order], dirs[order]
 
-        # TODO: Remove assertion if working
+        # Assert all indices assigned to valid nets
         assert torch.all(self.is_active[net_indices[valid:]])
 
         # Perform global-to-local mapping
         nerf_lib.global_to_local(sorted_pts[valid:], self.mid_pts, self.voxel_size, counts)
 
-        # TODO: fix hardcode
-        sorted_rgbs = torch.zeros((len(pts), 6), device=self.device)
+        sorted_rgbs = torch.zeros((len(pts), 3), device=self.device)
         sorted_densities = torch.zeros((len(pts), 1), device=self.device)
         sorted_rgbs[valid:], sorted_densities[valid:] = \
             super().forward(sorted_pts[valid:], sorted_dirs[valid:], counts)

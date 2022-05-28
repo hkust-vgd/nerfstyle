@@ -108,12 +108,11 @@ class Renderer:
         dirs_flat = torch.repeat_interleave(dirs, repeats=num_samples, dim=0)
 
         # Evaluate model
-        # TODO: fix hardcode
-        rgbs = torch.empty((len(pts_flat), 6), device=self.device)
+        rgbs = torch.empty((len(pts_flat), 3), device=self.device)
         densities = torch.empty((len(pts_flat), 1), device=self.device)
         utils.batch_exec(self.model, rgbs, densities,
                          bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
-        rgbs = rgbs.reshape(*dists.shape, 6)
+        rgbs = rgbs.reshape(*dists.shape, 3)
         densities = densities.reshape(dists.shape)
 
         output['pts'] = pts_flat if 'pts' in ret_flags else None
@@ -121,19 +120,12 @@ class Renderer:
         del pts_flat, dirs_flat
 
         # Integrate points
-        rgb_c, rgb_s = torch.split(rgbs, [3, 3], dim=-1)
-        del rgbs
-
         integrate_bsize = self.net_cfg.pixels_bsize
         integrate_fn = partial(nerf_lib.integrate_points, bg_color=self.bg_color)
-        output['rgb_map'] = torch.empty((len(rgb_c), 3), device=self.device)
-        output['style_map'] = torch.empty((len(rgb_s), 3), device=self.device)
+        output['rgb_map'] = torch.empty((len(rgbs), 3), device=self.device)
         utils.batch_exec(integrate_fn, output['rgb_map'],
-                         bsize=integrate_bsize)(dists, rgb_c, densities)
-        utils.batch_exec(integrate_fn, output['style_map'],
-                         bsize=integrate_bsize)(dists, rgb_s, densities)
+                         bsize=integrate_bsize)(dists, rgbs, densities)
 
-        output['rgb_c'] = rgb_c if 'rgb_c' in ret_flags else None
-        output['rgb_s'] = rgb_s if 'rgb_s' in ret_flags else None
+        output['rgbs'] = rgbs if 'rgb_c' in ret_flags else None
         output['densities'] = densities if 'densities' in ret_flags else None
         return output
