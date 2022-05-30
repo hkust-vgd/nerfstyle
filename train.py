@@ -1,22 +1,10 @@
-import argparse
+from config import BaseConfig
 from trainers import get_trainer
 
 
 def train():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('dataset_cfg')
-    parser.add_argument('name')
-    parser.add_argument('--run-dir', default='./runs')
-    parser.add_argument('--mode', choices=['pretrain', 'distill', 'finetune'],
-                        default='pretrain')
-    parser.add_argument('--ckpt-path')
-    parser.add_argument('--teacher-ckpt-path')
-    parser.add_argument('--occ-map')
-    parser.add_argument('--style-image')
-    parser.add_argument('--retrain')
-
-    args, nargs = parser.parse_known_args()
-    trainer = get_trainer(args, nargs)
+    cfg, nargs = BaseConfig.read_nargs()
+    trainer = get_trainer(cfg, nargs)
 
     try:
         trainer.run()

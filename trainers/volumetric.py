@@ -11,7 +11,8 @@ from torch.utils.data import DataLoader
 import torchvision
 from tqdm import tqdm
 
-from common import LossValue
+from common import LossValue, TrainMode
+from config import BaseConfig
 from data import get_dataset, load_bbox
 from loss import FeatureExtractor, MattingLaplacian, StyleLoss
 from networks.nerf import SingleNerf
@@ -24,7 +25,7 @@ import utils
 class VolumetricTrainer(Trainer):
     def __init__(
         self,
-        args: Namespace,
+        cfg: BaseConfig,
         nargs: List[str]
     ) -> None:
         """
@@ -34,14 +35,16 @@ class VolumetricTrainer(Trainer):
             args (Namespace): Command line arguments.
             nargs (List[str]): Overwritten config parameters.
         """
-        super().__init__(__name__, args, nargs)
-        raise NotImplementedError
+        super().__init__(__name__, cfg, nargs)
 
         # Initialize model
-        if args.mode == 'pretrain':
+        if cfg.mode == TrainMode.PRETRAIN:
             self.model = SingleNerf.create_nerf(self.net_cfg)
-        elif args.mode == 'finetune':
+        elif cfg.mode == TrainMode.FINETUNE:
             self.model = DynamicMultiNerf.create_nerf(self.net_cfg, self.dataset_cfg)
+        else:
+            self.logger.error('Wrong training mode: {}'.format(cfg.mode.name))
+
         self.model = self.model.to(self.device)
         self.logger.info('Created model ' + str(self.model))
 
@@ -63,12 +66,12 @@ class VolumetricTrainer(Trainer):
         )
 
         # Load checkpoint if provided
-        if args.ckpt_path is None:
+        if cfg.ckpt_path is None:
             self.logger.info('Training model from scratch')
         else:
-            self.load_ckpt(args.ckpt_path)
-            if args.occ_map is not None:
-                self.model.load_occ_map(args.occ_map)
+            self.load_ckpt(cfg.ckpt_path)
+            if cfg.occ_map is not None:
+                self.model.load_occ_map(cfg.occ_map)
 
         # Initialize dataset
         self.train_set = get_dataset(self.dataset_cfg, 'train')

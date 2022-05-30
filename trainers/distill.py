@@ -15,6 +15,7 @@ from typeguard import typechecked
 
 from .base import Trainer
 from common import OccupancyGrid
+from config import BaseConfig
 from data import load_bbox
 from networks.nerf import Nerf, SingleNerf
 from networks.multi_nerf import StaticMultiNerf
@@ -143,8 +144,19 @@ class DistillTrainer(Trainer):
         'mape': lambda out, tar: F.l1_loss(out, tar, reduction='none') / (torch.abs(tar) + 0.1)
     }
 
-    def __init__(self, args, nargs):
-        super().__init__(__name__, args, nargs)
+    def __init__(
+        self,
+        cfg: BaseConfig,
+        nargs: List[str]
+    ) -> None:
+        """
+        KiloNeRF distillation trainer.
+
+        Args:
+            args (Namespace): Command line arguments.
+            nargs (List[str]): Overwritten config parameters.
+        """
+        super().__init__(__name__, cfg, nargs)
 
         self.test_log_dir = self.log_dir / 'logs'
         self.test_log_dir.mkdir(parents=True, exist_ok=True)
@@ -165,11 +177,11 @@ class DistillTrainer(Trainer):
         self.best_losses = {}
 
         # Load checkpoint if provided
-        if args.ckpt_path is None:
+        if cfg.ckpt_path is None:
             # Initialize node queues
             self.logger.info('Checking for empty nodes...')
-            if args.occ_map is not None:
-                occ_map = OccupancyGrid.load(args.occ_map, self.logger).to(self.device)
+            if cfg.occ_map is not None:
+                occ_map = OccupancyGrid.load(cfg.occ_map, self.logger).to(self.device)
                 for node in tqdm(self.root_nodes):
                     eps = 1E-5
                     pts = torch.tensor(np.stack([node.min_pt, node.max_pt]) + eps,
@@ -188,10 +200,10 @@ class DistillTrainer(Trainer):
             self.logger.info('Training {:d} nodes in {:d} rounds'.format(
                 active_count, int(np.ceil(active_count / self.train_cfg.distill.nets_bsize))))
         else:
-            self.load_ckpt(args.ckpt_path)
+            self.load_ckpt(cfg.ckpt_path)
 
-            if args.retrain is not None:
-                with open(args.retrain, 'r') as f:
+            if self.train_cfg.distill.retrain is not None:
+                with open(self.train_cfg.distill.retrain, 'r') as f:
                     retrain = [line[:-1] for line in f]
 
                 retrain_nodes = [node for node in self.trained_nodes if node.idx in retrain]
@@ -201,7 +213,7 @@ class DistillTrainer(Trainer):
                     self.nodes_queue.append(node)
 
         # Load teacher model
-        if args.teacher_ckpt_path is None:
+        if cfg.teacher_ckpt_path is None:
             self.logger.error('Please provide path to teacher model')
 
         self.teacher = SingleNerf.create_nerf(self.net_cfg).to(self.device)
@@ -211,7 +223,7 @@ class DistillTrainer(Trainer):
             ckpt = torch.load(ckpt_path)['model']
             self.teacher.load_state_dict(ckpt, strict=False)
 
-        _load(args.teacher_ckpt_path)
+        _load(cfg.teacher_ckpt_path)
         self.logger.info('Loaded teacher model ' + str(self.teacher))
 
         # Initialize metrics

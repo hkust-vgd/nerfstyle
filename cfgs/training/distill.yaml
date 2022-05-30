@@ -9,6 +9,7 @@ distill:
   init_data_bsize: 160000
   nets_bsize: 1024
   quantile: 0.99
+  retrain: null
   sparsity_check: 0.01
   test_bsize: 512
   test_samples_pnet: 20000

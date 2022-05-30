@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 import torch
@@ -8,6 +9,12 @@ from typeguard import typechecked
 import utils
 
 patch_typeguard()
+
+
+class TrainMode(Enum):
+    PRETRAIN = 0
+    DISTILL = 1
+    FINETUNE = 2
 
 
 @dataclass(frozen=True)

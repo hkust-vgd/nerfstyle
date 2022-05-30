@@ -1,32 +1,38 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 import sys
+from typing import List
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-import config
+from config import BaseConfig, DatasetConfig, NetworkConfig, TrainConfig
 from nerf_lib import nerf_lib
 import utils
 
 
 class Trainer(ABC):
-    def __init__(self, name, args, nargs):
+    def __init__(
+        self,
+        name: str,
+        cfg: BaseConfig,
+        nargs: List[str]
+    ) -> None:
         self.logger = utils.create_logger(name)
         self.iter_ctr = 0
         self.time0 = 0
         self.time1 = 0
 
-        self.name = args.name
-        self.log_dir: Path = Path(args.run_dir) / self.name
+        self.name = cfg.name
+        self.log_dir: Path = Path(cfg.run_dir) / self.name
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         if next(self.log_dir.iterdir(), None) is not None:
             # log dir is not empty
-            if (args.ckpt_path is not None) and (Path(args.ckpt_path).parent == self.log_dir):
+            if (cfg.ckpt_path is not None) and (Path(cfg.ckpt_path).parent == self.log_dir):
                 # loading from existing checkpoint in log dir
                 proceed = utils.prompt_bool(
-                    'Checkpoints beyond "{}" will be overwritten. Proceed?'.format(args.ckpt_path))
+                    'Checkpoints beyond "{}" will be overwritten. Proceed?'.format(cfg.ckpt_path))
             else:
                 proceed = utils.prompt_bool('Log directory not empty. Clean directory?')
                 if proceed:
@@ -36,11 +42,11 @@ class Trainer(ABC):
             if not proceed:
                 sys.exit(1)
 
-        # Parse args
-        self.dataset_cfg, nargs = config.DatasetConfig.load_nargs(args.dataset_cfg, nargs=nargs)
-        self.net_cfg, nargs = config.NetworkConfig.load_nargs(nargs=nargs)
-        self.train_cfg, nargs = config.TrainConfig.load_nargs(
-            'cfgs/training/{}.yaml'.format(args.mode), nargs=nargs)
+        # Parse arguments
+        train_cfg_path = 'cfgs/training/{}.yaml'.format(cfg.mode.name.lower())
+        self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg_path, nargs=nargs)
+        self.net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
+        self.train_cfg, nargs = TrainConfig.load_nargs(train_cfg_path, nargs=nargs)
         if len(nargs) > 0:
             self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 

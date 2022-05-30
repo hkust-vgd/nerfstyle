@@ -1,11 +1,15 @@
-from pathlib import Path
-from argparse import ArgumentParser
-from dataclasses import dataclass, asdict
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+import dataclasses
+from dataclasses import dataclass
 from dacite import from_dict
 from dacite import Config as DaciteConfig
+from enum import Enum
+from pathlib import Path
 from simple_parsing.docstring import get_attribute_docstring
-from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
 import yaml
+
+from common import TrainMode
 from utils import create_logger
 
 
@@ -58,6 +62,26 @@ class Config:
     default_path: Optional[str] = None
     print_col_width: int = 30
 
+    types_cfg = DaciteConfig(type_hooks={
+        Path: lambda p: Path(p).expanduser(),
+        TrainMode: lambda m: TrainMode[m.upper()],
+        tuple: tuple
+    })
+
+    @classmethod
+    def read_nargs(
+        cls: T,
+    ) -> Tuple[T, List[str]]:
+        parser = cls.create_parser()
+        args, nargs = parser.parse_known_args()
+        cfg_dict = vars(args)
+
+        obj = from_dict(data_class=cls, data=cfg_dict, config=cls.types_cfg)
+        logger.info('Loaded the following {} options:'.format(cls.__name__))
+        obj.print()
+
+        return obj, nargs
+
     @classmethod
     def load_nargs(
         cls: T,
@@ -79,37 +103,13 @@ class Config:
                 new_cfg_dict = yaml.load(f, Loader=yaml.FullLoader)
             cfg_dict.update(new_cfg_dict)
 
-        types_cfg = DaciteConfig(type_hooks={
-            Path: lambda p: Path(p).expanduser(),
-            tuple: tuple
-        })
-
         # Overwrite arguments on-the-fly
-        def _argnames(k: str):
-            names = ['--' + k]
-            if '_' in k:
-                names += ['--' + k.replace('_', '-')]
-            return names
-
         if len(nargs) > 0:
-            parser = ArgumentParser(add_help=False)
-            cfg_dict_flat = flatten(cfg_dict)
-
-            for k, v in cfg_dict_flat.items():
-                docstr = get_attribute_docstring(cls, k).docstring_below.replace('%', '%%')
-                if v is None:
-                    continue
-                elif isinstance(v, bool):
-                    action = 'store_false' if v else 'store_true'
-                    parser.add_argument(*_argnames(k), action=action, help=docstr)
-                else:
-                    parser.add_argument(*_argnames(k), type=type(v), default=v, help=docstr)
-            parser.print_help()
+            parser = cls.create_parser(cfg_dict)
             args, nargs = parser.parse_known_args(nargs)
-            cfg_dict_flat.update(vars(args))
-            cfg_dict = unflatten(cfg_dict_flat)
+            cfg_dict = unflatten(vars(args))
 
-        obj = from_dict(data_class=cls, data=cfg_dict, config=types_cfg)
+        obj = from_dict(data_class=cls, data=cfg_dict, config=cls.types_cfg)
         logger.info('Loaded the following {} options:'.format(cls.__name__))
         obj.print()
 
@@ -123,11 +123,86 @@ class Config:
         obj, _ = cls.load_nargs(config_path)
         return obj
 
+    @classmethod
+    def create_parser(
+        cls,
+        loaded_values: Optional[Dict[str, Any]] = None
+    ) -> ArgumentParser:
+        def _argnames(k: str):
+            names = ['--' + k]
+            if '_' in k:
+                names += ['--' + k.replace('_', '-')]
+            return names
+
+        cfg_types = {f.name: f.type for f in dataclasses.fields(cls)}
+        cfg_dict = {f.name: f.default for f in dataclasses.fields(cls)}
+        if loaded_values is not None:
+            for k, v in loaded_values.items():
+                assert k in cfg_dict
+                cfg_dict[k] = v
+
+        parser = ArgumentParser(add_help=False, formatter_class=ArgumentDefaultsHelpFormatter)
+
+        for k, v in flatten(cfg_dict).items():
+            docstr = get_attribute_docstring(cls, k).docstring_below.replace('%', '%%')
+            if v is dataclasses.MISSING:
+                # Required argument
+                parser.add_argument(k, help=docstr)
+            elif v is None:
+                # Optional argument, no default value
+                field_opt_type = cfg_types[k]
+                assert field_opt_type.__origin__ is Union
+                field_type, n_type = field_opt_type.__args__
+                assert isinstance(None, n_type)
+
+                if not dataclasses.is_dataclass(field_type):
+                    parser.add_argument(*_argnames(k), type=field_type, help=docstr)
+
+            # Optional argument, has loaded default value
+            elif isinstance(v, bool):
+                action = 'store_false' if v else 'store_true'
+                parser.add_argument(*_argnames(k), action=action, help=docstr)
+            elif isinstance(v, Enum):
+                choices = [n.lower() for n in type(v)._member_names_]
+                default_choice = v.name.lower()
+                parser.add_argument(*_argnames(k), choices=choices,
+                                    default=default_choice, help=docstr)
+            else:
+                parser.add_argument(*_argnames(k), type=type(v), default=v, help=docstr)
+
+        return parser
+
     def print(self):
-        disp_dict = flatten(asdict(self), delim='  ', append_root=False, show_root=True)
+        disp_dict = flatten(dataclasses.asdict(self), delim='  ', append_root=False, show_root=True)
         for k, v in disp_dict.items():
-            print('{: <{width}}| {}'.format(
-                k, str(v), width=self.print_col_width))
+            print('{: <{width}}| {}'.format(k, str(v), width=self.print_col_width))
+
+
+@dataclass
+class BaseConfig(Config):
+    data_cfg_path: Path
+    """Path of dataset configuration file."""
+
+    name: str
+    """Name of experiment."""
+
+    run_dir: Path = './runs'
+    """Root path of log folder. Logs will be stored at <run_dir>/<name>."""
+
+    mode: TrainMode = TrainMode.PRETRAIN
+    """Training mode."""
+
+    ckpt_path: Optional[Path] = None
+    """Path of checkpoint to load from."""
+
+    teacher_ckpt_path: Optional[Path] = None
+    """Path of teacher checkpoint used to training the distillation stage."""
+
+    occ_map: Optional[Path] = None
+    """Path of occupancy map, used for speeding up inference."""
+
+    style_image: Optional[Path] = None
+    """If provided, model will perform style transfer on this image."""
 
 
 @dataclass
@@ -248,6 +323,9 @@ class TrainConfig(Config):
 
         quantile: float
         """Quantile to use during metric evaluation."""
+
+        retrain: Optional[Path]
+        """List of nodes to retrain for distillation stage."""
 
         sparsity_check: float
         """Nodes with an occupied volume less than this percentage will be treated as empty, i.e.
