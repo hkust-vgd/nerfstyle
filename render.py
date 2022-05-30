@@ -83,7 +83,7 @@ def main():
     if args.occ_map is not None:
         model.load_occ_map(args.occ_map)
 
-    test_set = get_dataset(dataset_cfg, 'test', max_count=30)
+    test_set = get_dataset(dataset_cfg, 'test', max_count=30, skip=30)
     test_loader = DataLoader(test_set, batch_size=None, shuffle=False)
     logger.info('Loaded ' + str(test_set))
 

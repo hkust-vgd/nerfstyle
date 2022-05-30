@@ -35,6 +35,7 @@ class VolumetricTrainer(Trainer):
             nargs (List[str]): Overwritten config parameters.
         """
         super().__init__(__name__, args, nargs)
+        raise NotImplementedError
 
         # Initialize model
         if args.mode == 'pretrain':
@@ -238,6 +239,11 @@ class VolumetricTrainer(Trainer):
             self.log_status(losses, new_lr)
         if self.check_interval(self.train_cfg.intervals.ckpt, final=True):
             self.save_ckpt()
+
+    def run(self):
+        if self.train_cfg.test_before_train:
+            self.test_networks()
+        super().run()
 
 
 class StyleTrainer(VolumetricTrainer):

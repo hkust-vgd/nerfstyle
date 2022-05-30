@@ -3,7 +3,8 @@ from argparse import ArgumentParser
 from dataclasses import dataclass, asdict
 from dacite import from_dict
 from dacite import Config as DaciteConfig
-from typing import List, Optional, Tuple, TypeVar
+from simple_parsing.docstring import get_attribute_docstring
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 import yaml
 from utils import create_logger
 
@@ -12,15 +13,44 @@ logger = create_logger(__name__)
 T = TypeVar('T')
 
 
-def flatten(d: dict):
+def flatten(
+    d: Dict[str, Any],
+    delim: str = '.',
+    append_root: bool = True,
+    show_root: bool = False
+) -> Dict[str, Any]:
     items = {}
     for k, v in d.items():
         if isinstance(v, dict):
-            subitems = {'  ' + sk: sv for sk, sv in flatten(v).items()}
-            items[k] = ''
+            def new_key(sk):
+                return k + delim + sk if append_root else delim + sk
+            subitems = {new_key(sk): sv for sk, sv in flatten(v).items()}
+            if show_root:
+                items[k] = ''
             items.update(subitems)
         else:
             items[k] = v
+    return items
+
+
+def unflatten(
+    d: Dict[str, Any],
+    delim: str = '.'
+) -> Dict[str, Any]:
+    items = {}
+
+    def setval(d: Dict[str, Any], k: str, v: Any):
+        if delim not in k:
+            d[k] = v
+        else:
+            rk, sk = k.split(delim)
+            if rk not in d.keys():
+                d[rk] = {}
+            setval(d[rk], sk, v)
+
+    for k, v in d.items():
+        setval(items, k, v)
+
     return items
 
 
@@ -62,11 +92,22 @@ class Config:
             return names
 
         if len(nargs) > 0:
-            parser = ArgumentParser()
-            for k, v in cfg_dict.items():
-                parser.add_argument(*_argnames(k), type=type(v), default=v)
+            parser = ArgumentParser(add_help=False)
+            cfg_dict_flat = flatten(cfg_dict)
+
+            for k, v in cfg_dict_flat.items():
+                docstr = get_attribute_docstring(cls, k).docstring_below.replace('%', '%%')
+                if v is None:
+                    continue
+                elif isinstance(v, bool):
+                    action = 'store_false' if v else 'store_true'
+                    parser.add_argument(*_argnames(k), action=action, help=docstr)
+                else:
+                    parser.add_argument(*_argnames(k), type=type(v), default=v, help=docstr)
+            parser.print_help()
             args, nargs = parser.parse_known_args(nargs)
-            cfg_dict.update(vars(args))
+            cfg_dict_flat.update(vars(args))
+            cfg_dict = unflatten(cfg_dict_flat)
 
         obj = from_dict(data_class=cls, data=cfg_dict, config=types_cfg)
         logger.info('Loaded the following {} options:'.format(cls.__name__))
@@ -83,7 +124,8 @@ class Config:
         return obj
 
     def print(self):
-        for k, v in flatten(asdict(self)).items():
+        disp_dict = flatten(asdict(self), delim='  ', append_root=False, show_root=True)
+        for k, v in disp_dict.items():
             print('{: <{width}}| {}'.format(
                 k, str(v), width=self.print_col_width))
 
@@ -177,7 +219,10 @@ class TrainConfig(Config):
     """No. of total iterations for training."""
 
     test_skip: int
-    """Render the test image once every N frames, to save time."""
+    """Render the test images every N frames."""
+
+    test_before_train: bool
+    """Render the test images once before the first iteration."""
 
     @dataclass
     class TrainIntervalConfig:
