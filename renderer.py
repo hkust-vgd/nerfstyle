@@ -53,6 +53,7 @@ class Renderer:
         self.bg_color = torch.ones(3, device='cuda')
 
         self.logger.info('Renderer "{}" initialized'.format(name))
+        self.clock = utils.Clock()
 
     @property
     def use_precrop(self):
@@ -104,28 +105,62 @@ class Renderer:
         # Sample points
         num_samples = self.net_cfg.num_samples_per_ray
         pts, dists = nerf_lib.sample_points(rays, self.near, self.far, num_samples)
-        pts_flat = pts.reshape(-1, 3)
-        dirs_flat = torch.repeat_interleave(dirs, repeats=num_samples, dim=0)
+        dirs = dirs.unsqueeze(1).tile((1, num_samples, 1))
 
         # Evaluate model
-        rgbs = torch.empty((len(pts_flat), 3), device=self.device)
-        densities = torch.empty((len(pts_flat), 1), device=self.device)
-        utils.batch_exec(self.model, rgbs, densities,
-                         bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
-        rgbs = rgbs.reshape(*dists.shape, 3)
-        densities = densities.reshape(dists.shape)
+        num_samples_per_pass = 8
+        trans_threshold = 0.01
 
-        output['pts'] = pts_flat if 'pts' in ret_flags else None
-        output['dirs'] = dirs_flat if 'dirs' in ret_flags else None
-        del pts_flat, dirs_flat
+        rgb_buf = torch.zeros((len(pts), 3), device=self.device)
+        acc_buf = torch.zeros((len(pts), 1), device=self.device)
+        trans_buf = torch.ones((len(pts), 1), device=self.device)
 
-        # Integrate points
-        integrate_bsize = self.net_cfg.pixels_bsize
-        integrate_fn = partial(nerf_lib.integrate_points, bg_color=self.bg_color)
-        output['rgb_map'] = torch.empty((len(rgbs), 3), device=self.device)
-        utils.batch_exec(integrate_fn, output['rgb_map'],
-                         bsize=integrate_bsize)(dists, rgbs, densities)
+        for start in range(0, num_samples, num_samples_per_pass):
+            end = min(num_samples, start + num_samples_per_pass)
+            pts_flat = pts[:, start:end].reshape(-1, 3)
+            dirs_flat = dirs[:, start:end].reshape(-1, 3)
 
-        output['rgbs'] = rgbs if 'rgb_c' in ret_flags else None
-        output['densities'] = densities if 'densities' in ret_flags else None
+            active_rays = (trans_buf > trans_threshold).squeeze(1)
+            if torch.sum(active_rays) == 0:
+                break
+            active_pts = active_rays.repeat_interleave(end - start)
+
+            rgbs = torch.empty((len(pts_flat), 3), device=self.device)
+            densities = torch.empty((len(pts_flat), 1), device=self.device)
+            utils.batch_exec(self.model, rgbs, densities,
+                             bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat, active_pts)
+
+            rgbs = rgbs.reshape((len(pts), end - start, 3))
+            densities = densities.reshape((len(pts), end - start))
+
+            integrate_bsize = self.net_cfg.pixels_bsize
+            utils.batch_exec(nerf_lib.integrate_points, rgb_buf, acc_buf, trans_buf,
+                             bsize=integrate_bsize)(
+                dists[:, start:end], rgbs, densities, rgb_buf, acc_buf, trans_buf)
+
+        output['rgb_map'] = rgb_buf + (1 - acc_buf) * self.bg_color
         return output
+
+        # rgbs = torch.empty((len(pts_flat), 3), device=self.device)
+        # densities = torch.empty((len(pts_flat), 1), device=self.device)
+        # utils.batch_exec(self.model, rgbs, densities,
+        #                  bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
+        # rgbs = rgbs.reshape(*dists.shape, 3)
+        # densities = densities.reshape(dists.shape)
+        # self.clock.click('Eval model')
+
+        # output['pts'] = pts_flat if 'pts' in ret_flags else None
+        # output['dirs'] = dirs_flat if 'dirs' in ret_flags else None
+        # del pts_flat, dirs_flat
+
+        # # Integrate points
+        # integrate_bsize = self.net_cfg.pixels_bsize
+        # integrate_fn = partial(nerf_lib.integrate_points, bg_color=self.bg_color)
+        # output['rgb_map'] = torch.empty((len(rgbs), 3), device=self.device)
+        # utils.batch_exec(integrate_fn, output['rgb_map'],
+        #                  bsize=integrate_bsize)(dists, rgbs, densities)
+
+        # output['rgbs'] = rgbs if 'rgb_c' in ret_flags else None
+        # output['densities'] = densities if 'densities' in ret_flags else None
+        # self.clock.click('Integrate points')
+        # return output

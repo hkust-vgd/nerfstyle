@@ -197,7 +197,8 @@ class DynamicMultiNerf(MultiNerf):
         self.occ_map = OccupancyGrid.load(map_path, self.logger).to(self.device)
         self.logger.info('Loaded occupancy map "{}"'.format(map_path))
 
-    def map_to_nets_indices(self, pts):
+    # TODO: reduce overlap with OccupancyGrid
+    def map_to_nets_indices(self, pts, masks):
         epsilon = 1e-5
         invalid = [(pts >= self.global_max_pt - epsilon), (pts < self.global_min_pt + epsilon)]
         invalid = torch.any(torch.cat(invalid, dim=-1), dim=-1)  # (N, )
@@ -205,18 +206,25 @@ class DynamicMultiNerf(MultiNerf):
         indices = torch.sum(indices.to(self.basis) * self.basis, dim=-1)
         indices[invalid] = -1
 
-        inactive_mask = torch.logical_not(self.is_active[indices])
+        active_mask = self.is_active[indices]
+        for mask in masks:
+            active_mask = torch.logical_and(active_mask, mask)
+
+        inactive_mask = torch.logical_not(active_mask)
         indices[inactive_mask] = -1
         return indices, torch.sum(inactive_mask).item()
 
-    def forward(self, pts, dirs=None, *_):
+    def forward(self, pts, dirs=None, ert_mask=None):
         assert self._ready
 
-        net_indices, valid = self.map_to_nets_indices(pts)
+        masks = []
         if self.occ_map is not None:
-            net_indices = torch.where(self.occ_map(pts), net_indices, -1)
-            valid = torch.sum(net_indices < 0).item()
+            masks.append(self.occ_map(pts))
+        if ert_mask is not None:
+            masks.append(ert_mask)
+        net_indices, valid = self.map_to_nets_indices(pts, masks)
 
+        # No points to evaluate
         if (valid == len(pts)):
             rgbs = torch.zeros((len(pts), 3), device=self.device)
             densities = torch.zeros((len(pts), 1), device=self.device)

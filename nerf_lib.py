@@ -152,17 +152,18 @@ class NerfLib:
             far (float): Distance from origin to stop sampling points.
             num_samples (int): No. of point samples per ray.
         """
-        z_vals = torch.linspace(near, far, steps=(num_samples + 1)).to(self._device)
+        z_vals = torch.linspace(near, far, steps=(num_samples + 1), device=self._device)
         z_vals = z_vals.expand([len(rays), num_samples + 1])
 
         lower = z_vals[:, :-1]
         upper = z_vals[:, 1:]
-        t_rand = torch.rand(lower.shape).to(self._device)
+        t_rand = torch.rand(lower.shape, device=self._device)
         z_vals = lower + (upper - lower) * t_rand
         pts = rays.lerp(z_vals)
 
         dists = z_vals[..., 1:] - z_vals[..., :-1]
-        dists = torch.cat([dists, torch.ones((len(dists), 1)).to(self._device) * 1e10], dim=-1)
+        last_dist = torch.ones((len(dists), 1), device=self._device) * 1e10
+        dists = torch.cat([dists, last_dist], dim=-1)
         return pts, dists
 
     @assert_ready
@@ -171,34 +172,42 @@ class NerfLib:
         dists: TensorType['N', 'K'],
         rgbs: TensorType['N', 'K', 3],
         densities: TensorType['N', 'K'],
-        bg_color: TensorType[3]
-    ) -> TensorType['N', 3]:
+        prev_rgb: TensorType['N', 3],
+        prev_acc: TensorType['N', 1],
+        prev_trans: TensorType['N', 1]
+    ) -> Tuple[TensorType['N', 3], TensorType['N', 1]]:
         """Evaluate the volumetric rendering equation for N rays, each with K samples.
 
         Args:
             dists (TensorType[N, K]): Distances between samples.
             rgbs (TensorType[N, K, 3]): Colors of the samples.
             densities (TensorType[N, K]): Densities of the samples.
-            bg_color (TensorType[3]): Background color.
+            prev_rgb (TensorType[N, 3]): Colors from last pass. (First pass = 0)
+            prev_acc (TensorType[N, 1]): Accumulated weights from last pass. (First pass = 0)
+            prev_trans (TensorType[N, 1]): Transmittance from last pass. (First pass = 1)
 
         Returns:
-            TensorType[N, 3]: Evaluation results.
+            rgb_map (TensorType[N, 3]): Color values.
+            acc_map (TensorType[N, 1]): Accumulated weights.
+            trans_map (TensorType[N, 1]): Transmittance values.
         """
 
+        # a_s, ..., a_{e-1}
         alpha = utils.density2alpha(densities, dists)
-        # 1, (1 - a_1), ..., (1 - a_(K-1))
-        alpha_tmp = torch.cat([
-            torch.ones((len(alpha), 1)).to(self._device),
-            (1. - alpha[:, :-1])
-        ], dim=-1)
-        ts = torch.cumprod(alpha_tmp, dim=-1)
-        weights = alpha * ts  # (N, K)
-        rgb_map = einops.reduce(weights[..., None] * rgbs, 'n k c -> n c', 'sum')
-        acc_map = einops.reduce(weights, 'n k -> n', 'sum')
 
-        res = (1 - acc_map)[..., None]
-        rgb_map = rgb_map + res * bg_color
-        return rgb_map
+        # t_s, (1 - a_s), ..., (1 - a_{e-2})
+        alpha_tmp = torch.cat([prev_trans, (1. - alpha[:, :-1])], dim=-1)
+
+        # t_s, ..., t_{e-1}
+        trans = torch.cumprod(alpha_tmp, dim=-1)
+
+        weights = alpha * trans
+        rgb_map = prev_rgb + einops.reduce(weights[..., None] * rgbs, 'n k c -> n c', 'sum')
+        acc_map = prev_acc + einops.reduce(weights, 'n k -> n', 'sum').unsqueeze(-1)
+
+        # t_e = t_{e-1} * (1 - a_{e-1})
+        trans_map = (trans[:, -1] * (1. - alpha[:, -1]))[:, None]
+        return rgb_map, acc_map, trans_map
 
     @assert_ready
     def global_to_local(

@@ -297,6 +297,9 @@ class Clock:
         print(stats_table)
 
 
+global_clock = Clock()
+
+
 class ExitHandler(logging.StreamHandler):
     def __init__(self, stream=None):
         super(ExitHandler, self).__init__(stream)
