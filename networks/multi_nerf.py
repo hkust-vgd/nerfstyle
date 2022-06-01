@@ -231,7 +231,10 @@ class DynamicMultiNerf(MultiNerf):
             return rgbs, densities
 
         net_indices, order = torch.sort(net_indices)
-        counts = torch.bincount(net_indices[valid:], minlength=self.num_nets)
+        counts = torch.zeros(self.num_nets, dtype=torch.int64, device=self.device)
+        active_nets, active_counts = torch.unique_consecutive(
+            net_indices[valid:], return_counts=True)
+        counts[active_nets] = active_counts
         sorted_pts, sorted_dirs = pts[order], dirs[order]
 
         # Assert all indices assigned to valid nets
