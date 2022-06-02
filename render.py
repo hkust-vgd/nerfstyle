@@ -1,4 +1,5 @@
 import argparse
+from functools import partial
 from pathlib import Path
 import sys
 
@@ -95,17 +96,21 @@ def main():
         intr = test_set.intrinsics.scale(W, H)
 
     near, far = test_set.near, test_set.far
-    renderer = Renderer(model, net_cfg, intr, near, far)
+    renderer = Renderer(model, net_cfg, intr, near, far, use_ert=True)
 
     @torch.no_grad()
     def render():
         for i, (_, pose) in tqdm(enumerate(test_loader), total=len(test_set)):
             pose = pose.to(device)
-            output = renderer.render(pose)
-            c_map = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=H, w=W)
-
+            output = renderer.render(pose, ret_flags=['trans_map'])
+            nc2chw = partial(einops.rearrange, pattern='(h w) c -> c h w', h=H, w=W)
+            c_map = nc2chw(output['rgb_map'])
             c_save_path = out_dir / 'frame_{:03d}.png'.format(i)
             torchvision.utils.save_image(c_map, c_save_path)
+
+            t_map = nc2chw(output['trans_map'])
+            t_save_path = out_dir / 'trans_{:03d}.png'.format(i)
+            torchvision.utils.save_image(t_map, t_save_path)
 
     try:
         render()

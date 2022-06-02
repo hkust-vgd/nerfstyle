@@ -1,5 +1,6 @@
-from functools import partial
 from typing import Dict, List, Optional, TypeVar
+from matplotlib import use
+import numpy as np
 import torch
 from torchtyping import TensorType
 
@@ -22,7 +23,8 @@ class Renderer:
         far: float,
         name: str = 'Renderer',
         precrop_frac: float = 1.,
-        num_rays: Optional[int] = None
+        num_rays: Optional[int] = None,
+        use_ert: bool = False
     ) -> None:
         """
         NeRF renderer.
@@ -33,6 +35,11 @@ class Renderer:
             intr (Intrinsics): Render camera intrinsics.
             near (float): Near plane distance.
             far (float): Far plane distance.
+            name (str, optional): Logging name. Defaults to 'Renderer'.
+            precrop_frac (float, optional): Cropping fraction. Defaults to 1.
+            num_rays (Optional[int], optional): No. of rays to sample randomly. Defaults to None
+                (render all rays in image).
+            use_ert (bool, optional): Turn on early ray termination (ERT). Defaults to False.
         """
         super().__init__()
         self.model = model
@@ -45,6 +52,7 @@ class Renderer:
 
         self._use_precrop = False
         self.precrop_frac = precrop_frac
+        self.use_ert = use_ert
 
         self.num_rays = num_rays
         self.device = self.model.device
@@ -84,13 +92,16 @@ class Renderer:
                 'rgb_map' (TensorType['K', 3]): Output RGB values for each pixel. Always included.
                 'target' (TensorType['K', 3]): Target RGB values for each pixel. Included if 'img'
                     is not None.
-                'pts' (TensorType['K*N', 3]): Positions of all point samples. (*)
-                'dirs' (TensorType['K*N', 3]): Directions of all point samples. (*)
-                'rgbs' (TensorType['K', 'N', 3]): Predicted RGB colors of all point samples. (*)
-                'densities' (TensorType['K', 'N']): Predicted densities of all point samples. (*)
+                'trans_map' (TensorType['K', 1]): No. of ERT passes for each pixel. (*)
 
                 (*) Included if specified in 'ret_flags'.
         """
+        # TODO: add back the below values if needed
+        # 'pts' (TensorType['K*N', 3]): Positions of all point samples. (*)
+        # 'dirs' (TensorType['K*N', 3]): Directions of all point samples. (*)
+        # 'rgbs' (TensorType['K', 'N', 3]): Predicted RGB colors of all point samples. (*)
+        # 'densities' (TensorType['K', 'N']): Predicted densities of all point samples. (*)
+
         torch.cuda.empty_cache()
         output = {}
         if ret_flags is None:
@@ -108,13 +119,16 @@ class Renderer:
         dirs = dirs.unsqueeze(1).tile((1, num_samples, 1))
 
         # Evaluate model
-        num_samples_per_pass = 8
-        trans_threshold = 0.01
+        num_samples_per_pass = self.net_cfg.ert_bsize if self.use_ert else num_samples
+        trans_threshold = self.net_cfg.ert_trans_thres
 
         rgb_buf = torch.zeros((len(pts), 3), device=self.device)
         acc_buf = torch.zeros((len(pts), 1), device=self.device)
         trans_buf = torch.ones((len(pts), 1), device=self.device)
+        if 'trans_map' in ret_flags:
+            output['trans_map'] = torch.zeros((len(pts), 1), device=self.device)
 
+        total_passes = np.ceil(num_samples / num_samples_per_pass)
         for start in range(0, num_samples, num_samples_per_pass):
             end = min(num_samples, start + num_samples_per_pass)
             pts_flat = pts[:, start:end].reshape(-1, 3)
@@ -123,6 +137,9 @@ class Renderer:
             active_rays = (trans_buf > trans_threshold).squeeze(1)
             if torch.sum(active_rays) == 0:
                 break
+
+            if 'trans_map' in ret_flags:
+                output['trans_map'][:, 0] += active_rays.to(torch.float32) / total_passes
             active_pts = active_rays.repeat_interleave(end - start)
 
             rgbs = torch.empty((len(pts_flat), 3), device=self.device)
@@ -140,27 +157,3 @@ class Renderer:
 
         output['rgb_map'] = rgb_buf + (1 - acc_buf) * self.bg_color
         return output
-
-        # rgbs = torch.empty((len(pts_flat), 3), device=self.device)
-        # densities = torch.empty((len(pts_flat), 1), device=self.device)
-        # utils.batch_exec(self.model, rgbs, densities,
-        #                  bsize=self.net_cfg.pts_bsize)(pts_flat, dirs_flat)
-        # rgbs = rgbs.reshape(*dists.shape, 3)
-        # densities = densities.reshape(dists.shape)
-        # self.clock.click('Eval model')
-
-        # output['pts'] = pts_flat if 'pts' in ret_flags else None
-        # output['dirs'] = dirs_flat if 'dirs' in ret_flags else None
-        # del pts_flat, dirs_flat
-
-        # # Integrate points
-        # integrate_bsize = self.net_cfg.pixels_bsize
-        # integrate_fn = partial(nerf_lib.integrate_points, bg_color=self.bg_color)
-        # output['rgb_map'] = torch.empty((len(rgbs), 3), device=self.device)
-        # utils.batch_exec(integrate_fn, output['rgb_map'],
-        #                  bsize=integrate_bsize)(dists, rgbs, densities)
-
-        # output['rgbs'] = rgbs if 'rgb_c' in ret_flags else None
-        # output['densities'] = densities if 'densities' in ret_flags else None
-        # self.clock.click('Integrate points')
-        # return output

@@ -5,3 +5,5 @@ network_seed: 80000
 num_samples_per_ray: 384
 pts_bsize: 2000000
 pixels_bsize: 400000
+ert_bsize: 8
+ert_trans_thres: 0.01

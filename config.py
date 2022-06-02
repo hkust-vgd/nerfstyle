@@ -269,6 +269,12 @@ class NetworkConfig(Config):
     pixels_bsize: int
     """Batch size of pixels for integrating the volumetric rendering equation."""
 
+    ert_bsize: int
+    """Max no. of points to evaluate per ray, when using ERT."""
+
+    ert_trans_thres: float
+    """Terminate rays with transmittance lower than this threshold, when using ERT."""
+
     default_path = 'cfgs/network/default.yaml'
 
 

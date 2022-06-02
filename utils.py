@@ -1,3 +1,4 @@
+from collections import defaultdict
 import functools
 import logging
 from pathlib import Path
@@ -262,7 +263,8 @@ class Clock:
         self.verbose = verbose
         self.prev = None
         self.reset()
-        self.record = {}
+        self.record = defaultdict(list)
+        self.cur_record = defaultdict(list)
         self.stats = {
             'Min': np.min,
             'Max': np.max,
@@ -272,18 +274,23 @@ class Clock:
     def reset(self):
         self.prev = time()
 
-    def click(self, msg, reset=True):
-        out = time() - self.prev
+    def aggregate(self):
+        for k, v in self.cur_record.items():
+            self.record[k].append(np.sum(v))
+        self.cur_record.clear()
+
+    def click(self, msg, reset=True, click_verbose=False):
+        delta = time() - self.prev
         if reset:
             self.reset()
-        if msg not in self.record.keys():
-            self.record[msg] = []
 
-        self.record[msg].append(out)
-        if self.verbose:
-            print('Event "{}": {:.3f}s'.format(msg, out))
+        self.cur_record[msg].append(delta)
+        if self.verbose or click_verbose:
+            print('Event "{}": {:.3f}s'.format(msg, delta))
 
     def print_stats(self):
+        self.aggregate()
+
         stats_table = []
         for k in self.record.keys():
             stats_row = [k]
