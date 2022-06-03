@@ -11,7 +11,7 @@ intervals:
   print: 100
   log: 100
   ckpt: 10000
-  test: 5000
+  test: 20000
 rng_seed: 69420
 content_lambda: 0.025
 style_lambda: 0.1

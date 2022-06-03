@@ -242,7 +242,7 @@ class DatasetConfig(Config):
         scale_factor: float
         """Scale the bounding box by this value to allow greater tolerance."""
 
-    replica_cfg: Optional[ReplicaConfig]
+    replica_cfg: Optional[ReplicaConfig] = None
     """Additional config settings for Replica dataset."""
 
 

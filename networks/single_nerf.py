@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from config import NetworkConfig
@@ -27,5 +28,13 @@ class SingleNerf(Nerf):
         return nn.Linear(in_channels, out_channels)
 
     def forward(self, pts, dirs=None, ert_mask=None):
-        # TODO: Perform ERT for single nerf as well
-        return super().forward(pts, dirs)
+        if ert_mask is None or torch.sum(ert_mask) == len(pts):
+            return super().forward(pts, dirs)
+
+        rgbs = torch.zeros((len(pts), 3), device=self.device)
+        densities = torch.zeros((len(pts), 1), device=self.device)
+
+        if torch.sum(ert_mask) > 0:
+            rgbs[ert_mask], densities[ert_mask] = super().forward(
+                pts[ert_mask], dirs[ert_mask])
+        return rgbs, densities
