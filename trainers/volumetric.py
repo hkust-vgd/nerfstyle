@@ -15,8 +15,8 @@ from common import LossValue, TrainMode
 from config import BaseConfig
 from data import get_dataset, load_bbox
 from loss import FeatureExtractor, MattingLaplacian, StyleLoss
-from networks.nerf import SingleNerf
 from networks.multi_nerf import DynamicMultiNerf
+from networks.single_nerf import SingleNerf
 from renderer import Renderer
 from trainers.base import Trainer
 import utils
@@ -32,16 +32,16 @@ class VolumetricTrainer(Trainer):
         Default volumetric rendering trainer.
 
         Args:
-            args (Namespace): Command line arguments.
+            cfg (BaseConfig): Command line arguments.
             nargs (List[str]): Overwritten config parameters.
         """
         super().__init__(__name__, cfg, nargs)
 
         # Initialize model
         if cfg.mode == TrainMode.PRETRAIN:
-            self.model = SingleNerf.create_nerf(self.net_cfg)
+            self.model = SingleNerf(self.net_cfg)
         elif cfg.mode == TrainMode.FINETUNE:
-            self.model = DynamicMultiNerf.create_nerf(self.net_cfg, self.dataset_cfg)
+            self.model = DynamicMultiNerf(self.net_cfg, self.dataset_cfg)
         else:
             self.logger.error('Wrong training mode: {}'.format(cfg.mode.name))
 
@@ -100,7 +100,7 @@ class VolumetricTrainer(Trainer):
             precrop_frac=self.train_cfg.precrop_fraction,
             num_rays=self.train_cfg.num_rays_per_batch, name='trainRenderer')
         test_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, name='testRenderer')
+            self.model, self.net_cfg, intr, near, far, name='testRenderer', use_ert=True)
 
         return train_renderer, test_renderer
 

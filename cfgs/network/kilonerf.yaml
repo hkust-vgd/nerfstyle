@@ -1,0 +1,4 @@
+x_layers: 2
+x_widths: 32
+d_widths: 32
+x_skips: []

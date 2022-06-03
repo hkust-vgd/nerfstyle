@@ -14,7 +14,7 @@ from config import DatasetConfig, NetworkConfig
 from data import get_dataset
 from nerf_lib import nerf_lib
 from networks.multi_nerf import DynamicMultiNerf
-from networks.nerf import SingleNerf
+from networks.single_nerf import SingleNerf
 from renderer import Renderer
 import utils
 
@@ -46,7 +46,8 @@ def main():
         else:
             sys.exit(1)
 
-    net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
+    net_cfg_path = None if args.mode == 'pretrain' else 'cfgs/network/kilonerf.yaml'
+    net_cfg, nargs = NetworkConfig.load_nargs(net_cfg_path, nargs=nargs)
     dataset_cfg, nargs = DatasetConfig.load_nargs(args.dataset_cfg, nargs=nargs)
     if len(nargs) > 0:
         logger.error('Unrecognized arguments: ' + ' '.join(nargs))
@@ -58,9 +59,9 @@ def main():
     nerf_lib.init_magma()
 
     if args.mode == 'pretrain':
-        model = SingleNerf.create_nerf(net_cfg)
+        model = SingleNerf(net_cfg)
     else:
-        model = DynamicMultiNerf.create_nerf(net_cfg, dataset_cfg)
+        model = DynamicMultiNerf(net_cfg, dataset_cfg)
     model = model.to(device)
     logger.info('Created model ' + str(model))
 

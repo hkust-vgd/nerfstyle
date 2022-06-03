@@ -254,6 +254,21 @@ class NetworkConfig(Config):
     d_enc_count: int
     """No. of frequencies (pairs of sines / cosines) to encode the view direction."""
 
+    x_layers: int
+    """No. of linear layers in position MLP (i.e. before color / density split)."""
+
+    d_layers: int
+    """No. of linear layers in density MLP (i.e. after position / direction merge)."""
+
+    x_widths: Union[int, List[int]]
+    """No. of channels for each layer of position MLP."""
+
+    d_widths: Union[int, List[int]]
+    """No. of channels for each layer of density MLP."""
+
+    x_skips: List[int]
+    """Indices of hidden layers to insert skip connection from input position."""
+
     activation: str
     """Activation function after each linear layer."""
 

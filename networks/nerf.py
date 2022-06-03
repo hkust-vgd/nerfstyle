@@ -1,54 +1,46 @@
 from __future__ import annotations
+from abc import ABC, abstractmethod
 import torch
 from torch import nn
-from typing import List, TypeVar
 
 from common import TensorModule
 from config import NetworkConfig
-from networks.embedder import Embedder
 import utils
 
-T = TypeVar('T', bound='Nerf')
 
-
-class Nerf(TensorModule):
+class Nerf(TensorModule, ABC):
     def __init__(
-        self: T,
-        x_enc_counts: int,
-        d_enc_counts: int,
-        x_layers: int,
-        x_width: int,
-        d_widths: List[int],
-        activation: str = 'relu',
-        skip: List[int] = ()
+        self,
+        net_cfg: NetworkConfig
     ) -> None:
         """
-        Base class of all NeRF MLP networks.
+        Abstract base class for all NeRF networks.
 
         Args:
-            x_enc_counts (int): No. of terms for positional embedder.
-            d_enc_counts (int): No. of terms for direction embedder.
-            x_layers (int): No. of MLP layers before density output.
-            x_width (int): MLP layer common width before density output.
-            d_widths (list): MLP layer widths after density output.
-            activation (str): Activation after each linear layer.
-            skip (tuple, optional): Layers indices with input skip connection.
+            net_cfg (NetworkConfig): Network configuration.
         """
-
         super(Nerf, self).__init__()
-        self.skip = skip
-        self.activation = activation
+        self.skip = net_cfg.x_skips
+        self.activation = net_cfg.activation
         self.logger = utils.create_logger(__name__)
         self.device = torch.device('cpu')
 
-        self.x_embedder = self.get_embedder(x_enc_counts)
-        self.d_embedder = self.get_embedder(d_enc_counts)
+        x_widths, d_widths = net_cfg.x_widths, net_cfg.d_widths
+        if isinstance(x_widths, int):
+            x_widths = [x_widths] * net_cfg.x_layers
+        if isinstance(d_widths, int):
+            d_widths = [d_widths] * net_cfg.d_layers
+        assert len(x_widths) == net_cfg.x_layers
+        assert len(d_widths) == net_cfg.d_layers
+
+        self.x_embedder = self.get_embedder(net_cfg.x_enc_count)
+        self.d_embedder = self.get_embedder(net_cfg.d_enc_count)
         x_channels = self.x_embedder.out_channels
         d_channels = self.d_embedder.out_channels
 
-        channels = [x_channels] + [x_width] * x_layers
+        channels = [x_channels] + x_widths
         in_channels, out_channels = channels[:-1], channels[1:]
-        for i in skip:
+        for i in self.skip:
             in_channels[i] += x_channels
         self.x_layers = nn.ModuleList(
             [self.get_linear(i, j) for i, j in zip(in_channels, out_channels)])
@@ -58,8 +50,8 @@ class Nerf(TensorModule):
         self.d_layers = nn.ModuleList(
             [self.get_linear(i, j) for i, j in zip(in_channels, out_channels)])
 
-        self.x2d_layer = self.get_linear(x_width, d_widths[0])
-        self.a_layer = self.get_linear(x_width, 1)
+        self.x2d_layer = self.get_linear(x_widths[-1], d_widths[0])
+        self.a_layer = self.get_linear(x_widths[-1], 1)
         self.c_layer = self.get_linear(d_widths[-1], 3)
 
         activations_dict = {
@@ -69,20 +61,22 @@ class Nerf(TensorModule):
             'tanh': nn.Tanh()
         }
 
-        self.actv = activations_dict[activation]
+        self.actv = activations_dict[net_cfg.activation]
 
     @staticmethod
+    @abstractmethod
     def get_embedder(enc_counts):
-        return Embedder(enc_counts)
+        pass
 
     @staticmethod
+    @abstractmethod
     def get_linear(in_channels, out_channels):
-        return nn.Linear(in_channels, out_channels)
+        pass
 
     def to(
-        self: T,
+        self,
         device: torch.device
-    ) -> T:
+    ) -> Nerf:
         self.device = device
         return super().to(device)
 
@@ -118,45 +112,3 @@ class Nerf(TensorModule):
 
         c = torch.sigmoid(bind(self.c_layer)(out))
         return c, a
-
-
-class SingleNerf(Nerf):
-    def __init__(self, **nerf_params) -> None:
-        """
-        A single NeRF network.
-        """
-        super().__init__(**nerf_params)
-
-    @staticmethod
-    def get_embedder(enc_counts):
-        return Embedder(enc_counts)
-
-    @staticmethod
-    def get_linear(in_channels, out_channels):
-        return nn.Linear(in_channels, out_channels)
-
-    @classmethod
-    def create_nerf(
-        cls,
-        net_cfg: NetworkConfig
-    ) -> SingleNerf:
-        """
-        Create new NeRF network using default vanilla NeRF architecture.
-
-        Args:
-            net_cfg (NetworkConfig): Config object for network hyperparameters.
-
-        Returns:
-            SingleNerf: NeRF model.
-        """
-        nerf_config = {
-            'x_enc_counts': net_cfg.x_enc_count,
-            'd_enc_counts': net_cfg.d_enc_count,
-            'x_layers': 8,
-            'x_width': 256,
-            'd_widths': [256, 128],
-            'activation': net_cfg.activation,
-            'skip': [5]
-        }
-        model = cls(**nerf_config)
-        return model

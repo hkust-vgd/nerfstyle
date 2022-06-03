@@ -1,5 +1,10 @@
 x_enc_count: 10
 d_enc_count: 4
+x_layers: 8
+d_layers: 2
+x_widths: 256
+d_widths: [256, 128]
+x_skips: [5]
 activation: relu
 network_seed: 80000
 num_samples_per_ray: 384

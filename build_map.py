@@ -5,7 +5,7 @@ import torch
 
 from config import DatasetConfig, NetworkConfig, OccupancyGridConfig
 from data import load_bbox
-from networks.nerf import SingleNerf
+from networks.single_nerf import SingleNerf
 import utils
 
 
@@ -59,7 +59,7 @@ def main():
     all_samples = top_left_samples.expand(-1, points_per_voxel, -1) + offset_samples
 
     # Load embedders and model
-    model = SingleNerf.create_nerf(net_cfg).to(device)
+    model = SingleNerf(net_cfg).to(device)
 
     @utils.loader(logger)
     def _load(ckpt_path):

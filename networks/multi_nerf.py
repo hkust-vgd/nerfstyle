@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Optional
 import numpy as np
 import torch
 
@@ -10,45 +9,33 @@ from networks.embedder import Embedder, MultiEmbedder
 from networks.linears import MultiLinear, StaticMultiLinear, DynamicMultiLinear
 from nerf_lib import nerf_lib
 from .nerf import Nerf
+from .single_nerf import SingleNerf
 
 
 class MultiNerf(Nerf):
     def __init__(
         self,
-        num_nets: int,
-        network_seed: Optional[int],
-        **nerf_params
+        net_cfg: NetworkConfig,
+        num_nets: int
     ) -> None:
         """
         Composite of multiple NeRF MLP networks.
+
+        Args:
+            net_cfg (NetworkConfig): Network configutation.
+            num_nets (int): No. of networks.
         """
-        self._nerf_params = nerf_params
+        self.net_cfg = net_cfg
         self.num_nets = num_nets
 
-        if network_seed is not None:
-            MultiLinear.set_rng_cm(network_seed)
+        if net_cfg.network_seed is not None:
+            MultiLinear.set_rng_cm(net_cfg.network_seed)
 
-        super().__init__(**nerf_params)
-
-    @classmethod
-    def _get_default_config(
-        cls,
-        net_cfg: NetworkConfig
-    ) -> dict:
-        nerf_config = {
-            'x_enc_counts': net_cfg.x_enc_count,
-            'd_enc_counts': net_cfg.d_enc_count,
-            'x_layers': 2,
-            'x_width': 32,
-            'd_widths': [32, 32],
-            'activation': net_cfg.activation
-        }
-        return nerf_config
+        super().__init__(net_cfg)
 
     @torch.no_grad()
     def extract(self, idx: int) -> Nerf:
-        # TODO: change this to SingleNerf
-        single_model = Nerf(**self._nerf_params)
+        single_model = SingleNerf(self.net_cfg)
         for name, module in self.named_modules():
             if isinstance(module, MultiLinear):
                 single_module = single_model.get_submodule(name)
@@ -59,22 +46,20 @@ class MultiNerf(Nerf):
 
 
 class StaticMultiNerf(MultiNerf):
-    def __init__(self, *params, **nerf_params) -> None:
+    def __init__(
+        self,
+        net_cfg: NetworkConfig,
+        num_nets: int
+    ) -> None:
         """
         Accepts a 2D batch (N, B) of input, i.e. each sub-network receives the same no. of input
         samples to evaluate. Used during distillation stage.
-        """
-        super().__init__(*params, **nerf_params)
 
-    @classmethod
-    def create_nerf(
-        cls,
-        num_nets: int,
-        net_cfg: NetworkConfig
-    ) -> StaticMultiNerf:
-        nerf_config = super()._get_default_config(net_cfg)
-        model = cls(num_nets, net_cfg.network_seed, **nerf_config)
-        return model
+        Args:
+            net_cfg (NetworkConfig): Network configuration.
+            num_nets (int): No. of networks.
+        """
+        super().__init__(net_cfg, num_nets)
 
     @staticmethod
     def get_embedder(enc_counts):
@@ -88,17 +73,19 @@ class StaticMultiNerf(MultiNerf):
 class DynamicMultiNerf(MultiNerf):
     def __init__(
         self,
-        dataset_cfg: DatasetConfig,
-        network_seed: int,
-        **nerf_params
+        net_cfg: NetworkConfig,
+        dataset_cfg: DatasetConfig
     ) -> None:
         """
         Accepts a 1D batch (B, ) of input. Each input sample is delegated to corresponding
         sub-network based on its position. Each sub-network receives an unequal no. of input
         samples. Used during finetuning stage and inference.
+
+        Args:
+            net_cfg (NetworkConfig): Network configuration.
+            dataset_cfg (DatasetConfig): Dataset configuration.
         """
-        num_nets = np.prod(dataset_cfg.net_res)
-        super().__init__(num_nets, network_seed, **nerf_params)
+        super().__init__(net_cfg, np.prod(dataset_cfg.net_res))
         self.occ_map = None
 
         # For dynamic evaluation
@@ -115,29 +102,7 @@ class DynamicMultiNerf(MultiNerf):
 
         # Last element (always False) is for index == -1
         self.is_active = torch.zeros(self.num_nets + 1, dtype=torch.bool, device=self.device)
-
-        assert self.num_nets == np.prod(dataset_cfg.net_res)
         self._ready = False
-
-    @classmethod
-    def create_nerf(
-        cls,
-        net_cfg: NetworkConfig,
-        dataset_cfg: DatasetConfig
-    ) -> DynamicMultiNerf:
-        """
-        Create new NeRF multi-network using default KiloNeRF architecture.
-
-        Args:
-            net_cfg (NetworkConfig): Config object for network hyperparameters.
-            dataset_cfg (DatasetConfig): Config object for dataset hyperparameters.
-
-        Returns:
-            DynamicMultiNerf: MultiNeRF model.
-        """
-        nerf_config = super()._get_default_config(net_cfg)
-        model = cls(dataset_cfg, net_cfg.network_seed, **nerf_config)
-        return model
 
     @staticmethod
     def get_embedder(enc_counts):
@@ -162,10 +127,7 @@ class DynamicMultiNerf(MultiNerf):
         ckpt['active'] = self.is_active.cpu()
         return ckpt
 
-    def load_nodes(
-        self,
-        nodes: list
-    ) -> None:
+    def load_nodes(self, nodes):
         assert len(nodes) == self.num_nets
         nodes.sort(key=(lambda node: node['idx']))
 

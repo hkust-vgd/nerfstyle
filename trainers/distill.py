@@ -17,8 +17,9 @@ from .base import Trainer
 from common import OccupancyGrid
 from config import BaseConfig
 from data import load_bbox
-from networks.nerf import Nerf, SingleNerf
+from networks.nerf import Nerf
 from networks.multi_nerf import StaticMultiNerf
+from networks.single_nerf import SingleNerf
 import utils
 
 patch_typeguard()
@@ -216,7 +217,7 @@ class DistillTrainer(Trainer):
         if cfg.teacher_ckpt_path is None:
             self.logger.error('Please provide path to teacher model')
 
-        self.teacher = SingleNerf.create_nerf(self.net_cfg).to(self.device)
+        self.teacher = SingleNerf(self.net_cfg).to(self.device)
 
         @utils.loader(self.logger)
         def _load(ckpt_path):
@@ -309,7 +310,7 @@ class DistillTrainer(Trainer):
             node.log_init()
         self.num_nets = len(self.cur_nodes)
 
-        self.model = StaticMultiNerf.create_nerf(self.num_nets, self.net_cfg).to(self.device)
+        self.model = StaticMultiNerf(self.net_cfg, self.num_nets).to(self.device)
         self.logger.info('Created student model ' + str(self.model))
         self.optim = torch.optim.Adam(
             self.model.parameters(), lr=self.train_cfg.initial_learning_rate)
