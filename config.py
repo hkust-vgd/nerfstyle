@@ -58,6 +58,18 @@ def unflatten(
     return items
 
 
+def is_opt(field_opt_type):
+    # TODO: Use get_origin / get_args (Python 3.8)
+    if getattr(field_opt_type, '__origin__', None) is not Union:
+        return False
+    return type(None) == field_opt_type.__args__[1]
+
+
+def extract_opt(field_opt_type):
+    assert is_opt(field_opt_type)
+    return field_opt_type.__args__[0]
+
+
 class Config:
     default_path: Optional[str] = None
     print_col_width: int = 30
@@ -134,27 +146,33 @@ class Config:
                 names += ['--' + k.replace('_', '-')]
             return names
 
-        cfg_types = {f.name: f.type for f in dataclasses.fields(cls)}
         cfg_dict = {f.name: f.default for f in dataclasses.fields(cls)}
         if loaded_values is not None:
             for k, v in loaded_values.items():
                 assert k in cfg_dict
                 cfg_dict[k] = v
-
+        cfg_dict_flat = flatten(cfg_dict)
         parser = ArgumentParser(add_help=False, formatter_class=ArgumentDefaultsHelpFormatter)
 
-        for k, v in flatten(cfg_dict).items():
-            docstr = get_attribute_docstring(cls, k).docstring_below.replace('%', '%%')
+        for k, v in cfg_dict_flat.items():
+            field_type = cls
+            docstr = ''
+
+            # Get (nested) field type and docstring
+            for k_part in k.split('.'):
+                docstr = get_attribute_docstring(cls, k_part).docstring_below
+                docstr = docstr.replace('%', '%%')
+
+                cfg_types = {f.name: f.type for f in dataclasses.fields(field_type)}
+                field_type = cfg_types[k_part]
+                if is_opt(field_type):
+                    field_type = extract_opt(field_type)
+
             if v is dataclasses.MISSING:
                 # Required argument
                 parser.add_argument(k, help=docstr)
             elif v is None:
                 # Optional argument, no default value
-                field_opt_type = cfg_types[k]
-                assert field_opt_type.__origin__ is Union
-                field_type, n_type = field_opt_type.__args__
-                assert isinstance(None, n_type)
-
                 if not dataclasses.is_dataclass(field_type):
                     parser.add_argument(*_argnames(k), type=field_type, help=docstr)
 

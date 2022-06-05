@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
+from common import TrainMode
 from config import BaseConfig, DatasetConfig, NetworkConfig, TrainConfig
 from nerf_lib import nerf_lib
 import utils
@@ -43,10 +44,12 @@ class Trainer(ABC):
                 sys.exit(1)
 
         # Parse arguments
+        net_cfg_path = None if cfg.mode == TrainMode.PRETRAIN else 'cfgs/network/kilonerf.yaml'
         train_cfg_path = 'cfgs/training/{}.yaml'.format(cfg.mode.name.lower())
+
         self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg_path, nargs=nargs)
-        self.net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
         self.train_cfg, nargs = TrainConfig.load_nargs(train_cfg_path, nargs=nargs)
+        self.net_cfg, nargs = NetworkConfig.load_nargs(net_cfg_path, nargs=nargs)
         if len(nargs) > 0:
             self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 

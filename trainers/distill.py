@@ -208,7 +208,9 @@ class DistillTrainer(Trainer):
         if cfg.teacher_ckpt_path is None:
             self.logger.error('Please provide path to teacher model')
 
-        self.teacher = SingleNerf(self.net_cfg).to(self.device)
+        self.logger.info('Loading teacher model...')
+        teacher_net_cfg, _ = NetworkConfig.load_nargs(nargs=nargs)
+        self.teacher = SingleNerf(teacher_net_cfg).to(self.device)
 
         @utils.loader(self.logger)
         def _load(ckpt_path):
