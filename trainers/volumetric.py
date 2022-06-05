@@ -88,8 +88,9 @@ class VolumetricTrainer(Trainer):
 
         # Load bbox if needed
         self.bbox = None
-        if self.train_cfg.bbox_lambda > 0.0:
+        if self.train_cfg.sparsity_lambda > 0.:
             self.bbox = load_bbox(self.dataset_cfg, scale_box=False).to(self.device)
+            self.bbox.scale(self.train_cfg.sparsity_bbox_scale)
 
     def _get_renderers(self) -> Tuple[Renderer, Renderer]:
         intr = self.train_set.intrinsics
@@ -120,15 +121,14 @@ class VolumetricTrainer(Trainer):
             'psnr': LossValue('PSNR', 'psnr', utils.compute_psnr(mse_loss))
         }
 
-        # Penalize positive densities outside bbox
-        bbox_lambda = self.train_cfg.bbox_lambda
-        if bbox_lambda > 0.:
-            bbox_mask = self.bbox(output['pts'], outside=True)
-            pos_densities = F.relu(output['densities'].reshape(-1))
-            bbox_loss = torch.mean(bbox_mask * pos_densities) * bbox_lambda
-            losses['bbox'] = LossValue('BBox', 'bbox_loss', bbox_loss)
+        sparsity_lambda = self.train_cfg.sparsity_lambda
+        if sparsity_lambda > 0.:
+            coeff = self.train_cfg.sparsity_exp_coeff
+            sparsity_losses = torch.abs(1 - torch.exp(-coeff * output['sparsity']))
+            sparsity_loss = torch.mean(sparsity_losses) * sparsity_lambda
+            losses['sparsity'] = LossValue('Sparsity', 'sparsity_loss', sparsity_loss)
 
-            total_loss = mse_loss + bbox_loss
+            total_loss = mse_loss + sparsity_loss
             losses['total'] = LossValue('Total', 'total_loss', total_loss)
 
         return losses
@@ -213,8 +213,12 @@ class VolumetricTrainer(Trainer):
         img, pose = img.to(self.device), pose.to(self.device)
 
         self.train_renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
-        ret_flags = ['densities', 'pts']
-        output = self.train_renderer.render(pose, img, ret_flags)
+        output = self.train_renderer.render(pose, img)
+
+        if self.train_cfg.sparsity_lambda > 0.:
+            sparsity_pts = torch.rand((self.train_cfg.sparsity_samples, 3), device=self.device)
+            sparsity_pts = sparsity_pts * self.bbox.size() + self.bbox.min_pt
+            output['sparsity'] = self.model(sparsity_pts)
 
         losses = self.calc_loss(output)
         self.optim.zero_grad()

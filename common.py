@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional, TypeVar, Union
 
 import numpy as np
 import torch
@@ -8,6 +9,7 @@ from torchtyping import TensorType, patch_typeguard
 from typeguard import typechecked
 import utils
 
+T = TypeVar('T')
 patch_typeguard()
 
 
@@ -119,29 +121,66 @@ class TensorModule(torch.nn.Module):
         call '.to()' or '.cuda()' to move them to a GPU device.
         """
         super().__init__()
+        self.device = torch.device('cpu')
 
     def _apply(self, fn):
         for k, v in self.__dict__.items():
             if torch.is_tensor(v):
                 self.__setattr__(k, fn(v))
-        return super()._apply(fn)
+
+        super()._apply(fn)
+        return self
+
+    def cuda(self: T, device: Optional[Union[int, torch.device]] = None) -> T:
+        if device is None:
+            self.device = torch.device('cuda')
+        elif isinstance(device, int):
+            self.device = torch.device('cuda', device)
+        else:
+            self.device = device
+
+        return super().cuda(device)
+
+    def cpu(self: T) -> T:
+        self.device = torch.device('cpu')
+        return super().cpu()
+
+    def to(self: T, *args, **kwargs) -> T:
+        self.device, *_ = torch._C._nn._parse_to(*args, **kwargs)
+        return super().to(*args, **kwargs)
 
 
-class RegularBBox(TensorModule):
+class BBox(TensorModule):
     def __init__(
         self,
         bbox_min: np.ndarray,
         bbox_max: np.ndarray
     ) -> None:
         super().__init__()
-        self.min_pt = bbox_min
-        self.max_pt = bbox_max
+        self._min_pt = bbox_min
+        self._max_pt = bbox_max
+
+    @property
+    def min_pt(self) -> torch.Tensor:
+        return torch.tensor(self._min_pt, device=self.device)
+
+    @property
+    def max_pt(self) -> torch.Tensor:
+        return torch.tensor(self._max_pt, device=self.device)
+
+    def size(self) -> torch.Tensor:
+        return self.max_pt - self.min_pt
+
+    def scale(self, factor: float):
+        mid_pt = (self._min_pt + self._max_pt) / 2
+        self._min_pt = (self._min_pt - mid_pt) * factor + mid_pt
+        self._max_pt = (self._max_pt - mid_pt) * factor + mid_pt
 
     def forward(self):
         raise NotImplementedError
 
 
-class RotatedBBox(TensorModule):
+class RotatedBBox(BBox):
     def __init__(
         self,
         pts: np.ndarray,
@@ -154,20 +193,18 @@ class RotatedBBox(TensorModule):
             pts (np.ndarray): The 8 coordinates of the bounding box.
         """
         assert pts.shape == (8, 3)
-        super().__init__()
 
         # Indeixing convention:
         # Top face clockwise: v0 - v3, Bottom face clockwise: v4 - v7
         # v3 is on top of v4
         self.pts = pts
-        self.min_pt = np.min(self.pts, axis=0)
-        self.max_pt = np.max(self.pts, axis=0)
+        super().__init__(np.min(self.pts, axis=0), np.max(self.pts, axis=0))
 
         if scale_factor > 1.0:
-            midpt = (self.min_pt + self.max_pt) / 2
+            midpt = (self._min_pt + self._max_pt) / 2
             self.pts = (self.pts - midpt) * scale_factor + midpt
-            self.min_pt = np.min(self.pts, axis=0)
-            self.max_pt = np.max(self.pts, axis=0)
+            self._min_pt = np.min(self.pts, axis=0)
+            self._max_pt = np.max(self.pts, axis=0)
 
         # Identify 6 triangular reference faces on each side of bbox
         faces = np.array([

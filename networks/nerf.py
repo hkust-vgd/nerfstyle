@@ -73,13 +73,6 @@ class Nerf(TensorModule, ABC):
     def get_linear(in_channels, out_channels):
         pass
 
-    def to(
-        self,
-        device: torch.device
-    ) -> Nerf:
-        self.device = device
-        return super().to(device)
-
     def load_ckpt(self, ckpt):
         self.load_state_dict(ckpt['model'])
 

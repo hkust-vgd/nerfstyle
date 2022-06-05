@@ -1,7 +1,6 @@
 import importlib
-from typing import Union
 from config import DatasetConfig
-from common import RegularBBox, RotatedBBox
+from common import BBox
 from data.base_dataset import BaseDataset
 
 
@@ -26,7 +25,7 @@ def get_dataset(
 def load_bbox(
     dataset_cfg: DatasetConfig,
     scale_box: bool = True
-) -> Union[RegularBBox, RotatedBBox]:
+) -> BBox:
     dataset_type = dataset_cfg.type
     module_name = 'data.{}_dataset'.format(dataset_type.lower())
     loader_fn_name = 'load_bbox'

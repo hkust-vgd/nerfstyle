@@ -38,7 +38,7 @@ def main():
     ).reshape(-1, 1, 3)
 
     # Compute offset coords (1, K^3, 3)
-    voxel_size = (bbox.max_pt - bbox.min_pt) / dataset_cfg.grid_res
+    voxel_size = bbox.size().numpy() / dataset_cfg.grid_res
     offset_samples = [torch.linspace(0, voxel_size[d], grid_cfg.subgrid_size) for d in range(3)]
     offset_samples = torch.stack(
         torch.meshgrid(*offset_samples, indexing='ij'), dim=-1).reshape(1, -1, 3)

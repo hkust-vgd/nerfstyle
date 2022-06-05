@@ -369,6 +369,18 @@ class TrainConfig(Config):
     rng_seed: int
     """Seed for NumPy / PyTorch randomized number generators."""
 
+    sparsity_lambda: float
+    """Sparsity loss multiplier."""
+
+    sparsity_bbox_scale: float
+    """Scale BBox by this factor, then sample points inside to compute sparsity loss."""
+
+    sparsity_exp_coeff: float
+    """Exponential coefficient in sparsity loss computation."""
+
+    sparsity_samples: int
+    """No. of point samples per iteration for calculating sparsity loss."""
+
     content_lambda: float
     """Content loss multiplier."""
 
@@ -377,9 +389,6 @@ class TrainConfig(Config):
 
     photo_lambda: float
     """Photorealistic loss multiplier."""
-
-    bbox_lambda: float
-    """Bounding box loss multiplier."""
 
     default_path = 'cfgs/training/default.yaml'
 

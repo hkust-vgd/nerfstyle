@@ -15,7 +15,7 @@ from typeguard import typechecked
 
 from .base import Trainer
 from common import OccupancyGrid
-from config import BaseConfig
+from config import BaseConfig, NetworkConfig
 from data import load_bbox
 from networks.nerf import Nerf
 from networks.multi_nerf import StaticMultiNerf
@@ -51,7 +51,7 @@ class Node:
         with open(self.log_path, 'a') as f:
             f.write(msg + '\n')
 
-    def export_ckpt(self) -> dict:
+    def export_ckpt(self):
         ckpt = {
             'idx': self.idx,
             'min_pt': self.min_pt,
@@ -64,23 +64,14 @@ class Node:
         return ckpt
 
     @classmethod
-    def load_ckpt(cls, ckpt: dict):
+    def load_ckpt(cls, ckpt, net_cfg):
         node = Node(
             idx=ckpt['idx'], min_pt=ckpt['min_pt'], max_pt=ckpt['max_pt'],
             log_path=Path(ckpt['log_path'])
         )
 
         if ckpt['started']:
-            # TODO: Store nerf_config to remove hard code
-            nerf_config = {
-                'x_enc_counts': 10,
-                'd_enc_counts': 4,
-                'x_layers': 2,
-                'x_width': 32,
-                'd_widths': [32, 32],
-                'activation': 'relu'
-            }
-            node.net = SingleNerf(**nerf_config)
+            node.net = SingleNerf(net_cfg)
             node.net.load_state_dict(ckpt['model'])
 
         return node
@@ -414,15 +405,16 @@ class DistillTrainer(Trainer):
         def _load(ckpt_path):
             ckpt = torch.load(ckpt_path)
             if ckpt['iter'] != self.train_cfg.num_iterations:
-                raise NotImplementedError('Restarting from middle of round is not yet implemented')
+                raise NotImplementedError('Restarting from middle of round is not implemented')
 
             self.round_ctr = ckpt['round']
+            default_net_cfg = NetworkConfig.load()
 
             assert len(ckpt['trained']) + len(ckpt['empty']) == len(self.root_nodes)
             for node_dict in ckpt['trained']:
-                self.trained_nodes.append(Node.load_ckpt(node_dict))
+                self.trained_nodes.append(Node.load_ckpt(node_dict, default_net_cfg))
             for node_dict in ckpt['empty']:
-                self.nodes_queue.append(Node.load_ckpt(node_dict))
+                self.nodes_queue.append(Node.load_ckpt(node_dict, default_net_cfg))
 
         _load(ckpt_path)
         self.logger.info('Loaded checkpoint \"{}\"'.format(ckpt_path))

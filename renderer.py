@@ -58,7 +58,8 @@ class Renderer:
         self.device = self.model.device
 
         # Set BG color as white
-        self.bg_color = torch.ones(3, device='cuda')
+        self.bg_color = None
+        # self.bg_color = torch.ones(3, device='cuda')
 
         self.logger.info('Renderer "{}" initialized'.format(name))
         self.clock = utils.Clock()
@@ -93,14 +94,13 @@ class Renderer:
                 'target' (TensorType['K', 3]): Target RGB values for each pixel. Included if 'img'
                     is not None.
                 'trans_map' (TensorType['K', 1]): No. of ERT passes for each pixel. (*)
+                'pts' (TensorType['K', 'N', 3]): Positions of all point samples. (*)
+                'dirs' (TensorType['K', 3]): Directions of all point samples. (*)
+                'rgbs' (TensorType['K', 'N', 3]): Predicted RGB colors of all point samples. (*)
+                'densities' (TensorType['K', 'N']): Predicted densities of all point samples. (*)
 
                 (*) Included if specified in 'ret_flags'.
         """
-        # TODO: add back the below values if needed
-        # 'pts' (TensorType['K*N', 3]): Positions of all point samples. (*)
-        # 'dirs' (TensorType['K*N', 3]): Directions of all point samples. (*)
-        # 'rgbs' (TensorType['K', 'N', 3]): Predicted RGB colors of all point samples. (*)
-        # 'densities' (TensorType['K', 'N']): Predicted densities of all point samples. (*)
 
         torch.cuda.empty_cache()
         output = {}
@@ -128,6 +128,14 @@ class Renderer:
         if 'trans_map' in ret_flags:
             output['trans_map'] = torch.zeros((len(pts), 1), device=self.device)
 
+        output['pts'] = pts if 'pts' in ret_flags else None
+        output['dirs'] = dirs[:, 0, :] if 'dirs' in ret_flags else None
+
+        if 'rgbs' in ret_flags:
+            output['rgbs'] = torch.zeros((len(pts), num_samples, 3), device=self.device)
+        if 'densities' in ret_flags:
+            output['densities'] = torch.zeros((len(pts), num_samples), device=self.device)
+
         total_passes = np.ceil(num_samples / num_samples_per_pass)
         for start in range(0, num_samples, num_samples_per_pass):
             end = min(num_samples, start + num_samples_per_pass)
@@ -150,10 +158,17 @@ class Renderer:
             rgbs = rgbs.reshape((len(pts), end - start, 3))
             densities = densities.reshape((len(pts), end - start))
 
+            if 'rgbs' in ret_flags:
+                output['rgbs'][:, start:end] = rgbs
+            if 'densities' in ret_flags:
+                output['densities'][:, start:end] = densities
+
             integrate_bsize = self.net_cfg.pixels_bsize
             utils.batch_exec(nerf_lib.integrate_points, rgb_buf, acc_buf, trans_buf,
                              bsize=integrate_bsize)(
                 dists[:, start:end], rgbs, densities, rgb_buf, acc_buf, trans_buf)
 
-        output['rgb_map'] = rgb_buf + (1 - acc_buf) * self.bg_color
+        output['rgb_map'] = rgb_buf
+        if self.bg_color is not None:
+            output['rgb_map'] += (1 - acc_buf) * self.bg_color
         return output

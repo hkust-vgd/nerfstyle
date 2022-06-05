@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 
-from common import Intrinsics, RegularBBox
+from common import Intrinsics, BBox
 from config import DatasetConfig
 from data.base_dataset import BaseDataset
 import utils
@@ -58,8 +58,8 @@ class NSVFDataset(BaseDataset):
 def load_bbox(
     dataset_cfg: DatasetConfig,
     _
-) -> RegularBBox:
+) -> BBox:
     bbox_path = dataset_cfg.root_path / 'bbox.txt'
     bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)
-    bbox = RegularBBox(bbox_min, bbox_max)
+    bbox = BBox(bbox_min, bbox_max)
     return bbox
