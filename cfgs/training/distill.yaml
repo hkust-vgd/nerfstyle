@@ -6,6 +6,7 @@ intervals:
   test: 5000
 distill:
   alpha_dist: 0.0211
+  converge_thres: 0.15
   init_data_bsize: 160000
   nets_bsize: 1024
   quantile: 0.99

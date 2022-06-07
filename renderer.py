@@ -58,8 +58,8 @@ class Renderer:
         self.device = self.model.device
 
         # Set BG color as white
-        self.bg_color = None
-        # self.bg_color = torch.ones(3, device='cuda')
+        # self.bg_color = None
+        self.bg_color = torch.ones(3, device='cuda')
 
         self.logger.info('Renderer "{}" initialized'.format(name))
         self.clock = utils.Clock()

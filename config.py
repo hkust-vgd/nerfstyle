@@ -353,6 +353,9 @@ class TrainConfig(Config):
         alpha_dist: float
         """Alpha distance."""
 
+        converge_thres: float
+        """Retrain sub-network if quantile loss is not smaller than this threshold."""
+
         init_data_bsize: int
         """Batch size of points when initializing dataset, at the beginning of training each new
            batch of nodes."""

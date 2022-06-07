@@ -40,7 +40,8 @@ def batch_exec(
     bsize: int = 1,
     in_dim: int = 0,
     out_dim: Optional[int] = None,
-    progress: bool = False
+    progress: bool = False,
+    is_iter: bool = False
 ) -> Callable:
     """ Batch execution of function.
 
@@ -53,6 +54,8 @@ def batch_exec(
         out_dim (Optional[int], optional): Accumulates results over this
             dimension. Defaults to None (i.e. same as in_dim).
         progress (bool, optional): Displays progress meter. Defaults to False.
+        is_iter (bool, optional): If True, input argument is a single iterator object. Parameters
+            'bsize' and 'in_dim' would be ignored. Defaults to False.
 
     Returns:
         Callable: Batched function.
@@ -63,7 +66,7 @@ def batch_exec(
     def create_slice(dim, s, e):
         if dim == 0:
             return slice(s, e)
-        return tuple([slice(None) for _ in range(dim)] + slice(s, e))
+        return tuple([slice(None) for _ in range(dim)] + [slice(s, e)])
 
     def get_size(obj, dim):
         if hasattr(obj, 'shape'):
@@ -71,26 +74,42 @@ def batch_exec(
         assert dim == 0
         return len(obj)
 
+    def wrap_tuple(obj):
+        if isinstance(obj, tuple):
+            return obj
+        return (obj, )
+
     def batch_func(*args):
-        size = get_size(args[0], in_dim)
-        main_loop = range(0, size, bsize)
+        if is_iter:
+            size = len(args[0])
+            main_loop = args[0]
+        else:
+            size = get_size(args[0], in_dim)
+            main_loop = range(0, size, bsize)
         prog_bar = tqdm(main_loop, total=size, disable=(not progress))
+
         out_s = 0
-        for in_s in main_loop:
-            in_e = min(size, in_s + bsize)
-            in_slice = create_slice(in_dim, in_s, in_e)
-            bargs = [a[in_slice] for a in args]
+        for loop_obj in main_loop:
+            if is_iter:
+                # "loop_obj" = batch args
+                bargs = wrap_tuple(loop_obj)
+            else:
+                # "loop_obj" = start position
+                in_e = min(size, loop_obj + bsize)
+                in_slice = create_slice(in_dim, loop_obj, in_e)
+                bargs = [a[in_slice] for a in args]
 
-            bout = func(*bargs)
-            if not isinstance(bout, tuple):
-                bout = (bout, )
-
+            bout = wrap_tuple(func(*bargs))
             out_bsize = get_size(bout[0], out_dim)
             out_slice = create_slice(out_dim, out_s, out_s + out_bsize)
             for d, bo in zip(dest, bout):
                 d[out_slice] = bo
             out_s += out_bsize
-            prog_bar.update(in_e - in_s)
+
+            if is_iter:
+                prog_bar.update()
+            else:
+                prog_bar.update(in_e - loop_obj)
         prog_bar.close()
 
     return batch_func

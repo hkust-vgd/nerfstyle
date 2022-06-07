@@ -118,8 +118,13 @@ class DistillDataset(Dataset):
         }
         return item_dict
 
-    def get_gt(self):
-        return self._colors, self._alphas
+    @property
+    def colors(self):
+        return self._colors
+
+    @property
+    def alphas(self):
+        return self._alphas
 
     def __len__(self) -> int:
         return self._size
@@ -166,6 +171,7 @@ class DistillTrainer(Trainer):
         self.model, self.optim = None, None
         self.train_set, self.test_set = None, None
         self.train_loader, self.test_loader = None, None
+        self.retrain_nodes = None
         self.best_losses = {}
 
         # Load checkpoint if provided
@@ -302,6 +308,7 @@ class DistillTrainer(Trainer):
         for node in self.cur_nodes:
             node.log_init()
         self.num_nets = len(self.cur_nodes)
+        self.retrain_nodes = torch.zeros(self.num_nets, dtype=torch.bool, device=self.device)
 
         self.model = StaticMultiNerf(self.net_cfg, self.num_nets).to(self.device)
         self.logger.info('Created student model ' + str(self.model))
@@ -410,13 +417,12 @@ class DistillTrainer(Trainer):
                 raise NotImplementedError('Restarting from middle of round is not implemented')
 
             self.round_ctr = ckpt['round']
-            default_net_cfg = NetworkConfig.load()
 
             assert len(ckpt['trained']) + len(ckpt['empty']) == len(self.root_nodes)
             for node_dict in ckpt['trained']:
-                self.trained_nodes.append(Node.load_ckpt(node_dict, default_net_cfg))
+                self.trained_nodes.append(Node.load_ckpt(node_dict, self.net_cfg))
             for node_dict in ckpt['empty']:
-                self.nodes_queue.append(Node.load_ckpt(node_dict, default_net_cfg))
+                self.nodes_queue.append(Node.load_ckpt(node_dict, self.net_cfg))
 
         _load(ckpt_path)
         self.logger.info('Loaded checkpoint \"{}\"'.format(ckpt_path))
@@ -429,7 +435,17 @@ class DistillTrainer(Trainer):
 
         is_final = (self.iter_ctr == self.train_cfg.num_iterations)
         if is_final:
-            self.trained_nodes.batch_push(self.cur_nodes)
+            retrain_nodes = [self.cur_nodes[i] for i in range(self.num_nets)
+                             if self.retrain_nodes[i]]
+            trained_nodes = [self.cur_nodes[i] for i in range(self.num_nets)
+                             if not self.retrain_nodes[i]]
+            if len(retrain_nodes) > 0:
+                self.logger.info('{:d} nodes require retraining'.format(len(retrain_nodes)))
+            for node in retrain_nodes:
+                node.net = None
+
+            self.trained_nodes.batch_push(trained_nodes)
+            self.nodes_queue.batch_push(retrain_nodes)
             self.cur_nodes = []
 
         cur_nodes = [node.export_ckpt() for node in self.cur_nodes]
@@ -463,13 +479,17 @@ class DistillTrainer(Trainer):
     @torch.no_grad()
     def test_networks(self):
         self.logger.info('Running evaluation...')
-        colors, alphas = [], []
-        for batch in tqdm(self.test_loader):
+        colors = torch.empty((self.num_nets, len(self.test_set), 3), device=self.device)
+        alphas = torch.empty((self.num_nets, len(self.test_set), 1), device=self.device)
+
+        def eval_model(batch):
             color, density = self.model(batch['pts'], batch['dirs'])
-            colors.append(color)
-            alphas.append(utils.density2alpha(density, self.train_cfg.distill.alpha_dist))
-        colors, alphas = utils.batch_cat(colors, alphas, dim=1)
-        colors_gt, alphas_gt = [t.to(self.device) for t in self.test_set.get_gt()]
+            return color, utils.density2alpha(density, self.train_cfg.distill.alpha_dist)
+        utils.batch_exec(eval_model, colors, alphas, out_dim=1, progress=True, is_iter=True)(
+            self.test_loader)
+
+        colors_gt = self.test_set.colors.to(self.device)
+        alphas_gt = self.test_set.alphas.to(self.device)
 
         # Calculate losses for all metrics
         losses = {
@@ -478,6 +498,8 @@ class DistillTrainer(Trainer):
         }
         losses['se_q99'] = self.calc_quantile_loss(
             colors, alphas, colors_gt, alphas_gt)
+
+        self.retrain_nodes = (losses['se_q99']['all'] >= self.train_cfg.distill.converge_thres)
 
         # Update best losses for all metrics
         for mk, k in itertools.product(self.metrics, self.metric_items):
@@ -518,6 +540,8 @@ class DistillTrainer(Trainer):
     def run(self):
         while self.nodes_queue:
             self._init_round()
+            if self.train_cfg.test_before_train:
+                self.test_networks()
             super().run()  # Run loop
             self.logger.info('{:d} / {:d} networks completed'.format(
                 len(self.trained_nodes), len(self.root_nodes)))
