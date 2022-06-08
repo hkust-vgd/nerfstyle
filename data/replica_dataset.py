@@ -77,13 +77,11 @@ class ReplicaDataset(BaseDataset):
 
 
 def load_bbox(
-    dataset_cfg: DatasetConfig,
-    scale_box: bool = True
+    dataset_cfg: DatasetConfig
 ) -> RotatedBBox:
     assert dataset_cfg.replica_cfg is not None
     bbox_path = dataset_cfg.root_path / 'bboxes' / '{}.txt'.format(dataset_cfg.replica_cfg.name)
     bbox_coords = utils.load_matrix(bbox_path)
 
-    scale_factor = dataset_cfg.replica_cfg.scale_factor if scale_box else 1.0
-    bbox = RotatedBBox(bbox_coords, scale_factor)
+    bbox = RotatedBBox(bbox_coords)
     return bbox

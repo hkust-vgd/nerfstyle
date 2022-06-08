@@ -1,2 +1,4 @@
 initial_learning_rate: 0.001
+learning_rate_decay: 500000
 num_iterations: 800000
+test_before_train: true

@@ -23,8 +23,7 @@ def get_dataset(
 
 
 def load_bbox(
-    dataset_cfg: DatasetConfig,
-    scale_box: bool = True
+    dataset_cfg: DatasetConfig
 ) -> BBox:
     dataset_type = dataset_cfg.type
     module_name = 'data.{}_dataset'.format(dataset_type.lower())
@@ -32,6 +31,6 @@ def load_bbox(
 
     module = importlib.import_module(module_name)
     module_loader = getattr(module, loader_fn_name)
-    bbox = module_loader(dataset_cfg, scale_box)
+    bbox = module_loader(dataset_cfg)
 
     return bbox

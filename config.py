@@ -237,6 +237,9 @@ class DatasetConfig(Config):
     net_res: tuple
     """Local NeRF grid resolution for each dimension."""
 
+    bg_color: str
+    """Background color. Any matplotlib.colors compatible string is acceptable."""
+
     @dataclass
     class ReplicaConfig:
         name: str
@@ -257,11 +260,10 @@ class DatasetConfig(Config):
         black2white: bool
         """Convert black (0, 0, 0) pixels into white."""
 
-        scale_factor: float
-        """Scale the bounding box by this value to allow greater tolerance."""
-
-    replica_cfg: Optional[ReplicaConfig] = None
+    replica_cfg: Optional[ReplicaConfig]
     """Additional config settings for Replica dataset."""
+
+    default_path = 'cfgs/dataset/default.yaml'
 
 
 @dataclass

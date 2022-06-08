@@ -89,19 +89,21 @@ class VolumetricTrainer(Trainer):
         # Load bbox if needed
         self.bbox = None
         if self.train_cfg.sparsity_lambda > 0.:
-            self.bbox = load_bbox(self.dataset_cfg, scale_box=False).to(self.device)
+            self.bbox = load_bbox(self.dataset_cfg).to(self.device)
             self.bbox.scale(self.train_cfg.sparsity_bbox_scale)
 
     def _get_renderers(self) -> Tuple[Renderer, Renderer]:
         intr = self.train_set.intrinsics
         near, far = self.train_set.near, self.train_set.far
+        bg_color = self.dataset_cfg.bg_color
 
         train_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far,
+            self.model, self.net_cfg, intr, near, far, bg_color,
             precrop_frac=self.train_cfg.precrop_fraction,
             num_rays=self.train_cfg.num_rays_per_batch, name='trainRenderer')
         test_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, name='testRenderer', use_ert=True)
+            self.model, self.net_cfg, intr, near, far, bg_color,
+            name='testRenderer', use_ert=True)
 
         return train_renderer, test_renderer
 
@@ -200,7 +202,7 @@ class VolumetricTrainer(Trainer):
 
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             img, pose = img.to(self.device), pose.to(self.device)
-            output = self.test_renderer.render(pose)
+            output = self.test_renderer.render(pose, ret_flags=['trans_map'])
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)

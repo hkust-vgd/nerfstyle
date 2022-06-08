@@ -97,7 +97,8 @@ def main():
         intr = test_set.intrinsics.scale(W, H)
 
     near, far = test_set.near, test_set.far
-    renderer = Renderer(model, net_cfg, intr, near, far, use_ert=True)
+    bg_color = dataset_cfg.bg_color
+    renderer = Renderer(model, net_cfg, intr, near, far, bg_color, use_ert=True)
 
     @torch.no_grad()
     def render():

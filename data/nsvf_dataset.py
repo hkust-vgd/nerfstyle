@@ -56,8 +56,7 @@ class NSVFDataset(BaseDataset):
 
 
 def load_bbox(
-    dataset_cfg: DatasetConfig,
-    _
+    dataset_cfg: DatasetConfig
 ) -> BBox:
     bbox_path = dataset_cfg.root_path / 'bbox.txt'
     bbox_min, bbox_max = utils.load_matrix(bbox_path)[0, :-1].reshape(2, 3)

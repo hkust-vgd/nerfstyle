@@ -15,4 +15,3 @@ replica_cfg:
   focal_ratio: 0.5
   traj_ids: [6, 20, 22, 31, 51, 55, 60, 64]
   black2white: true
-  scale_factor: 1.1

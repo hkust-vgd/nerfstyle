@@ -9,29 +9,12 @@ import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import einops
+import matplotlib.colors as mcolors
 import numpy as np
 from PIL import Image
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-
-
-def batch(*tensors, bsize=1, progress=False):
-    batch_range = range(0, len(tensors[0]), bsize)
-    if progress:
-        batch_range = tqdm(batch_range)
-
-    for i in batch_range:
-        out = tuple(t[i:i+bsize] for t in tensors)
-        if len(tensors) == 1:
-            out = out[0]
-        yield out
-
-
-def batch_cat(*tensor_lists, dim=0, reshape=None) -> List[torch.Tensor]:
-    if reshape is None:
-        return [torch.cat(tl, dim=dim) for tl in tensor_lists]
-    return [torch.cat(tl, dim=dim).reshape(reshape) for tl in tensor_lists]
 
 
 def batch_exec(
@@ -113,6 +96,12 @@ def batch_exec(
         prog_bar.close()
 
     return batch_func
+
+
+def color_str2rgb(color: str) -> Tuple[float]:
+    color_map = mcolors.get_named_colors_mapping()
+    assert color in color_map.keys(), 'Invalid color "{}"'.format(color)
+    return mcolors.to_rgb(color_map[color])
 
 
 def compute_psnr(loss):

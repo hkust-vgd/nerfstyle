@@ -21,6 +21,7 @@ class Renderer:
         intr: Intrinsics,
         near: float,
         far: float,
+        bg_color: str,
         name: str = 'Renderer',
         precrop_frac: float = 1.,
         num_rays: Optional[int] = None,
@@ -35,6 +36,7 @@ class Renderer:
             intr (Intrinsics): Render camera intrinsics.
             near (float): Near plane distance.
             far (float): Far plane distance.
+            bg_color (str): Background color.
             name (str, optional): Logging name. Defaults to 'Renderer'.
             precrop_frac (float, optional): Cropping fraction. Defaults to 1.
             num_rays (Optional[int], optional): No. of rays to sample randomly. Defaults to None
@@ -57,9 +59,7 @@ class Renderer:
         self.num_rays = num_rays
         self.device = self.model.device
 
-        # Set BG color as white
-        # self.bg_color = None
-        self.bg_color = torch.ones(3, device='cuda')
+        self.bg_color = torch.tensor(utils.color_str2rgb(bg_color), device=self.device)
 
         self.logger.info('Renderer "{}" initialized'.format(name))
         self.clock = utils.Clock()
@@ -168,7 +168,5 @@ class Renderer:
                              bsize=integrate_bsize)(
                 dists[:, start:end], rgbs, densities, rgb_buf, acc_buf, trans_buf)
 
-        output['rgb_map'] = rgb_buf
-        if self.bg_color is not None:
-            output['rgb_map'] += (1 - acc_buf) * self.bg_color
+        output['rgb_map'] = rgb_buf + (1 - acc_buf) * self.bg_color
         return output

@@ -82,10 +82,10 @@ class LossValue:
 class RayBatch:
     """A batch of N rays sharing a common origin point."""
 
-    origin: np.ndarray
+    origin: torch.Tensor
     """(3,) array. Origin of ray batch."""
 
-    dests: np.ndarray
+    dests: torch.Tensor
     """(N, 3) array. Direction vectors of rays relative to origin."""
 
     def __post_init__(self):
@@ -104,10 +104,10 @@ class RayBatch:
         """Interpolate ray batch.
 
         Args:
-            coeffs (np.ndarray[N, K]): Array of K coefficients for each ray.
+            coeffs (torch.Tensor[N, K]): Array of K coefficients for each ray.
 
         Returns:
-            np.ndarray[N, K, 3]: Array of points at interpolated positions for each ray.
+            torch.Tensor[N, K, 3]: Array of points at interpolated positions for each ray.
         """
         assert len(coeffs) == len(self)
         out = torch.einsum('nc, nk -> nkc', self.dests, coeffs) + self.origin
@@ -171,6 +171,9 @@ class BBox(TensorModule):
     def size(self) -> torch.Tensor:
         return self.max_pt - self.min_pt
 
+    def mid_pt(self) -> torch.Tensor:
+        return (self.max_pt + self.min_pt) / 2
+
     def scale(self, factor: float):
         mid_pt = (self._min_pt + self._max_pt) / 2
         self._min_pt = (self._min_pt - mid_pt) * factor + mid_pt
@@ -183,8 +186,7 @@ class BBox(TensorModule):
 class RotatedBBox(BBox):
     def __init__(
         self,
-        pts: np.ndarray,
-        scale_factor: float = 1.0
+        pts: np.ndarray
     ) -> None:
         """
         A 3D dimensional bounding box.
@@ -199,12 +201,6 @@ class RotatedBBox(BBox):
         # v3 is on top of v4
         self.pts = pts
         super().__init__(np.min(self.pts, axis=0), np.max(self.pts, axis=0))
-
-        if scale_factor > 1.0:
-            midpt = (self._min_pt + self._max_pt) / 2
-            self.pts = (self.pts - midpt) * scale_factor + midpt
-            self._min_pt = np.min(self.pts, axis=0)
-            self._max_pt = np.max(self.pts, axis=0)
 
         # Identify 6 triangular reference faces on each side of bbox
         faces = np.array([
