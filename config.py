@@ -334,6 +334,10 @@ class TrainConfig(Config):
     """No. of iterations when learning rate drops to 10% of initial value.
        Set to zero to use constant rate."""
 
+    max_eval_count: Optional[int]
+    """During evaluation, only render N frames. The frames are evenly spaced out and span the
+       entire test set. If None, render all frames."""
+
     num_iterations: int
     """No. of total iterations for training."""
 

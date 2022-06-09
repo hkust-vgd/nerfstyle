@@ -1,4 +1,6 @@
 import importlib
+from typing import Optional
+
 from config import DatasetConfig
 from common import BBox
 from data.base_dataset import BaseDataset
@@ -7,8 +9,7 @@ from data.base_dataset import BaseDataset
 def get_dataset(
     dataset_cfg: DatasetConfig,
     split: str,
-    skip: int = 1,
-    max_count: int = -1
+    max_count: Optional[int] = None
 ) -> BaseDataset:
     dataset_type = dataset_cfg.type
 
@@ -17,7 +18,7 @@ def get_dataset(
 
     module = importlib.import_module(module_name)
     module_ctor = getattr(module, class_name)
-    dataset = module_ctor(dataset_cfg, split, skip, max_count)
+    dataset = module_ctor(dataset_cfg, split, max_count)
 
     return dataset
 

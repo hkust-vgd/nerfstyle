@@ -78,8 +78,8 @@ class VolumetricTrainer(Trainer):
         self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = get_dataset(self.dataset_cfg, 'test', skip=self.train_cfg.test_skip,
-                                    max_count=30)
+        self.test_set = get_dataset(self.dataset_cfg, 'test',
+                                    max_count=self.train_cfg.max_eval_count)
         self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
 
@@ -212,12 +212,13 @@ class VolumetricTrainer(Trainer):
         img_dir.mkdir()
 
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
+            frame_id = self.test_set.frame_str_ids[i]
             img, pose = img.to(self.device), pose.to(self.device)
-            output = self.test_renderer.render(pose, ret_flags=['trans_map'])
+            output = self.test_renderer.render(pose)
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
-            save_path = img_dir / 'frame_{:03d}.png'.format(i)
+            save_path = img_dir / 'frame_{}.png'.format(frame_id)
             torchvision.utils.save_image(rgb_output, save_path)
 
     def run_iter(self):

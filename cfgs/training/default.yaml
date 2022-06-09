@@ -3,8 +3,8 @@ precrop_fraction: 0.5
 precrop_iterations: 0
 initial_learning_rate: 0.0005
 learning_rate_decay: 0
+max_eval_count: 30
 num_iterations: 200000
-test_skip: 1
 test_before_train: false
 distill: null
 intervals:

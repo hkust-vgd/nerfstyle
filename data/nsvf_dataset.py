@@ -1,7 +1,4 @@
-from pathlib import Path
-from typing import Union
 import numpy as np
-
 from common import Intrinsics, BBox
 from config import DatasetConfig
 from data.base_dataset import BaseDataset
@@ -24,12 +21,10 @@ class NSVFDataset(BaseDataset):
         assert len(self.rgb_paths) == len(self.pose_paths)
         assert all([fn1.stem == fn2.stem for fn1, fn2 in zip(self.rgb_paths, self.pose_paths)])
 
-        if self.skip > 1:
-            self.rgb_paths = self.rgb_paths[::self.skip]
-            self.pose_paths = self.pose_paths[::self.skip]
-        if self.max_count >= 0:
-            self.rgb_paths = self.rgb_paths[:self.max_count]
-            self.pose_paths = self.pose_paths[:self.max_count]
+        self._set_frame_ids(len(self.rgb_paths))
+        if self.max_count is not None:
+            self.rgb_paths = [self.rgb_paths[i] for i in self.frame_ids]
+            self.pose_paths = [self.pose_paths[i] for i in self.frame_ids]
 
         self.imgs = np.stack([utils.parse_rgb(path) for path in self.rgb_paths])
         self.poses = np.stack([utils.load_matrix(path) for path in self.pose_paths], axis=0)

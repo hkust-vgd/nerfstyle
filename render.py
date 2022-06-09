@@ -32,6 +32,8 @@ def main():
     parser.add_argument('--out-dir', default='./outputs')
     parser.add_argument('--occ-map')
     parser.add_argument('--out-dims', nargs=2, type=int, metavar=('WIDTH', 'HEIGHT'))
+    parser.add_argument('--max-count', type=int)
+    parser.add_argument('--render-trans', action='store_true')
     args, nargs = parser.parse_known_args()
 
     logger = utils.create_logger(__name__)
@@ -85,7 +87,7 @@ def main():
     if args.occ_map is not None:
         model.load_occ_map(args.occ_map)
 
-    test_set = get_dataset(dataset_cfg, 'test', max_count=30, skip=2)
+    test_set = get_dataset(dataset_cfg, 'test', max_count=args.max_count)
     test_loader = DataLoader(test_set, batch_size=None, shuffle=False)
     logger.info('Loaded ' + str(test_set))
 
@@ -103,16 +105,19 @@ def main():
     @torch.no_grad()
     def render():
         for i, (_, pose) in tqdm(enumerate(test_loader), total=len(test_set)):
+            frame_id = test_set.frame_str_ids[i]
             pose = pose.to(device)
-            output = renderer.render(pose, ret_flags=['trans_map'])
+            ret_flags = ['trans_map'] if args.render_trans else None
+            output = renderer.render(pose, ret_flags=ret_flags)
             nc2chw = partial(einops.rearrange, pattern='(h w) c -> c h w', h=H, w=W)
             c_map = nc2chw(output['rgb_map'])
-            c_save_path = out_dir / 'frame_{:03d}.png'.format(i)
+            c_save_path = out_dir / 'frame_{}.png'.format(frame_id)
             torchvision.utils.save_image(c_map, c_save_path)
 
-            t_map = nc2chw(output['trans_map'])
-            t_save_path = out_dir / 'trans_{:03d}.png'.format(i)
-            torchvision.utils.save_image(t_map, t_save_path)
+            if args.render_trans:
+                t_map = nc2chw(output['trans_map'])
+                t_save_path = out_dir / 'trans_{}.png'.format(frame_id)
+                torchvision.utils.save_image(t_map, t_save_path)
 
     try:
         render()

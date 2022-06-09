@@ -50,13 +50,24 @@ replica_all/
 
 ## Usage
 
-**Render a pretrained model**
+**Render a finetuned KiloNeRF model**
 
 ```bash
-python render.py <cfg_path> <out_folder_name> <ckpt_path>
+python render.py <cfg_path> <out_folder_name> <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count <max_count>
+```
 
-# Example: scene `room1` from Replics, render at 
-python render.py cfg
+- `cfg_path`: Path to config file, located in `cfgs`
+- `out_folder_name`: Name of output folder, generated in `outputs`
+- `ckpt_path`: Checkpoint path (links below)
+- `occ_map_path`: Occupancy map path (links below)
+- `max_count`: No. of images to render; exclude flag to render all images in test set
+
+```bash
+# Example: Synthetic-NeRF "lego" scene
+python render.py cfgs/dataset/nerf_lego.yaml lego <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count 100
+
+# Example: Replica "room1" scene
+python render.py cfgs/dataset/replica_room1.yaml room1 <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count 100
 ```
 
 **Training models on datasets**
