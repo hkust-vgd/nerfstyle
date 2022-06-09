@@ -123,6 +123,7 @@ class VolumetricTrainer(Trainer):
             'psnr': LossValue('PSNR', 'psnr', utils.compute_psnr(mse_loss))
         }
 
+        sparsity_loss = 0
         sparsity_lambda = self.train_cfg.sparsity_lambda
         if sparsity_lambda > 0.:
             coeff = self.train_cfg.sparsity_exp_coeff
@@ -130,7 +131,17 @@ class VolumetricTrainer(Trainer):
             sparsity_loss = torch.mean(sparsity_losses) * sparsity_lambda
             losses['sparsity'] = LossValue('Sparsity', 'sparsity_loss', sparsity_loss)
 
-            total_loss = mse_loss + sparsity_loss
+        weight_reg_loss = 0
+        weight_reg_lambda = self.train_cfg.weight_reg_lambda
+        if weight_reg_lambda > 0.:
+            view_params = [p for n, p in self.model.named_parameters()
+                           if ('c_layer' in n) or ('d_layers' in n)]
+            norm_sum = torch.sum(torch.stack([p.norm(2) for p in view_params]))
+            weight_reg_loss = norm_sum * weight_reg_lambda
+            losses['weight_reg'] = LossValue('Weight Reg.', 'weight_reg_loss', weight_reg_loss)
+
+        if sparsity_loss + weight_reg_loss > 0:
+            total_loss = mse_loss + sparsity_loss + weight_reg_loss
             losses['total'] = LossValue('Total', 'total_loss', total_loss)
 
         return losses

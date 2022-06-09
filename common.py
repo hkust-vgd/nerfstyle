@@ -214,6 +214,11 @@ class RotatedBBox(BBox):
         self.origins = torch.tensor(pts0)
         self.normals = torch.tensor(normals)
 
+    def scale(self, factor: float):
+        super().scale(factor)
+        mid_pt = (self._min_pt + self._max_pt) / 2
+        self.pts = (self.pts - mid_pt) * factor + mid_pt
+
     @typechecked
     def forward(
         self,

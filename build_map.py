@@ -28,6 +28,8 @@ def main():
 
     save_path = Path(args.weights_path).parent / args.save_name
     bbox = load_bbox(dataset_cfg)
+    if dataset_cfg.replica_cfg is not None:
+        bbox.scale(dataset_cfg.replica_cfg.scale_factor)
 
     # Compute top left sample coords (H*W*D, 1, 3)
     top_left_samples = [torch.linspace(

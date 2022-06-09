@@ -9,16 +9,16 @@ A NeRF renderer written from scratch.
   - Uses a composition of multiple NeRF models to speed up inference
   - Helps break down large scenes into smaller, local radiance fields
 - Optimized with CUDA extensions
-- Supports style transfer training; can render alternate appearnces based on a style image
+- Supports style transfer training; can render alternate appearances based on a style image
 
 ## Roadmap
 
 - [x] Pretrained model on indoor scenes from [Replica](https://github.com/facebookresearch/Replica-Dataset)
-- [ ] Rendering at real-time speed
-- [ ] OpenGL viewport
-- [ ] Accelerated training
-- [ ] Pretrained models on more datasets
-- [ ] Distill to PlenOctrees
+- [x] Multi-model rendering via KiloNeRF
+- [x] Ensure model compactness with sparsity loss
+- [ ] Pretrained models on more datasets (e.g. Tanks & Temples)
+- [ ] Accelerate training by parametric encoding
+- [ ] Distill to PlenOctrees for real-time rendering
 
 ## Setup
 

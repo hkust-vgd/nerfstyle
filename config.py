@@ -260,6 +260,9 @@ class DatasetConfig(Config):
         black2white: bool
         """Convert black (0, 0, 0) pixels into white."""
 
+        scale_factor: float
+        """Scale bounding box by this value before subdivision into smaller networks."""
+
     replica_cfg: Optional[ReplicaConfig]
     """Additional config settings for Replica dataset."""
 
@@ -362,6 +365,9 @@ class TrainConfig(Config):
         """Batch size of points when initializing dataset, at the beginning of training each new
            batch of nodes."""
 
+        max_retries: int
+        """Retrain a network for at most this no. of times to prevent infinite loop."""
+
         nets_bsize: int
         """No. of subnetworks to simultaneously train during one round of training."""
 
@@ -403,6 +409,9 @@ class TrainConfig(Config):
 
     sparsity_samples: int
     """No. of point samples per iteration for calculating sparsity loss."""
+
+    weight_reg_lambda: float
+    """Weight regularization multiplier."""
 
     content_lambda: float
     """Content loss multiplier."""

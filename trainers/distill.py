@@ -34,6 +34,7 @@ class Node:
         log_path: Path
     ) -> None:
         self.idx = idx
+        self.retries = 0
         self.min_pt, self.max_pt = np.array(min_pt), np.array(max_pt)
         self.net: Optional[Nerf] = None
 
@@ -233,6 +234,8 @@ class DistillTrainer(Trainer):
 
     def _generate_nodes(self) -> List[Node]:
         bbox = load_bbox(self.dataset_cfg)
+        if self.dataset_cfg.replica_cfg is not None:
+            bbox.scale(self.dataset_cfg.replica_cfg.scale_factor)
         net_res = self.dataset_cfg.net_res
         log_dir = self.test_log_dir
 
@@ -435,14 +438,21 @@ class DistillTrainer(Trainer):
 
         is_final = (self.iter_ctr == self.train_cfg.num_iterations)
         if is_final:
-            retrain_nodes = [self.cur_nodes[i] for i in range(self.num_nets)
-                             if self.retrain_nodes[i]]
-            trained_nodes = [self.cur_nodes[i] for i in range(self.num_nets)
-                             if not self.retrain_nodes[i]]
+            retrain_nodes, trained_nodes = [], []
+            for i in range(self.num_nets):
+                needs_retrain = self.retrain_nodes[i] and \
+                    self.cur_nodes[i].retries < self.train_cfg.distill.max_retries
+                if needs_retrain:
+                    retrain_nodes.append(self.cur_nodes[i])
+                else:
+                    trained_nodes.append(self.cur_nodes[i])
+
             if len(retrain_nodes) > 0:
                 self.logger.info('{:d} nodes require retraining'.format(len(retrain_nodes)))
+
             for node in retrain_nodes:
                 node.net = None
+                node.retries += 1
 
             self.trained_nodes.batch_push(trained_nodes)
             self.nodes_queue.batch_push(retrain_nodes)

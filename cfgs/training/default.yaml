@@ -17,6 +17,7 @@ sparsity_lambda: 0
 sparsity_bbox_scale: 5.0
 sparsity_exp_coeff: 0.05
 sparsity_samples: 50000
+weight_reg_lambda: 0
 content_lambda: 0.025
 style_lambda: 0.1
 photo_lambda: 0.0001

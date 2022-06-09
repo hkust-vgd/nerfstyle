@@ -90,6 +90,8 @@ class DynamicMultiNerf(MultiNerf):
 
         # For dynamic evaluation
         bbox = load_bbox(dataset_cfg)
+        if dataset_cfg.replica_cfg is not None:
+            bbox.scale(dataset_cfg.replica_cfg.scale_factor)
         self.global_min_pt = torch.tensor(bbox.min_pt)
         self.global_max_pt = torch.tensor(bbox.max_pt)
         self.net_res = torch.tensor(dataset_cfg.net_res)
