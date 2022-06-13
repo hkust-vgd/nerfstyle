@@ -48,28 +48,43 @@ replica_all/
 
 4. Change `root_path` in the config files (`./cfgs/dataset/replica_<scene_name>.yaml`)
 
+## Trained models
+
+Trained models (KiloNeRF) + occupancy grids are provided below for testing.
+
+|Dataset|Scene|DL link|Size|
+|---|---|---|---|
+|Synthetic_NeRF|`chair`|[Dropbox](https://www.dropbox.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz?dl=0)|78.83 MB|
+|Synthetic_NeRF|`lego`|||
+|Replica|`office4`|[Dropbox](https://www.dropbox.com/s/7817p9eg8u2v2y0/replica_office4.tar.gz?dl=0)|498.36 MB|
+|Replica|`room1`|[Dropbox](https://www.dropbox.com/s/2lj420du7voqzlp/replica_room1.tar.gz?dl=0)|388.89 MB|
+|Replica|`room2`|||
+
 ## Usage
 
 **Render a finetuned KiloNeRF model**
 
-```bash
-python render.py <cfg_path> <out_folder_name> <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count <max_count>
-```
+> ```bash
+> python render.py <cfg_path> <out_folder_name> <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count <max_count> --out-dims <W> <H>
+> ```
 
 - `cfg_path`: Path to config file, located in `cfgs`
 - `out_folder_name`: Name of output folder, generated in `outputs`
-- `ckpt_path`: Checkpoint path (links below)
-- `occ_map_path`: Occupancy map path (links below)
-- `max_count`: No. of images to render; exclude flag to render all images in test set
+- `ckpt_path`: Checkpoint path (pretrained DL link above)
+- `--occ-map`: Occupancy map path (pretrained DL link above)
+- `--max-count`: No. of images to render
+  - Exclude flag to render all images in test set
+- `--out-dims`: Output dimension
+  - Exclude flag to render at default dataset dimension
 
-```bash
-# Example: Synthetic-NeRF "lego" scene
-python render.py cfgs/dataset/nerf_lego.yaml lego <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count 100
-
-# Example: Replica "room1" scene
-python render.py cfgs/dataset/replica_room1.yaml room1 <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count 100
-```
+> ```bash
+> # Example: Synthetic-NeRF "lego" scene
+> python render.py cfgs/dataset/nerf_lego.yaml lego <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count 100
+> 
+> # Example: Replica "room1" scene in 1024x768 resolution
+> python render.py cfgs/dataset/replica_room1.yaml room1 <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count 100 --out-dims 1024 768
+> ```
 
 **Training models on datasets**
 
-To be updated later
+Instructions to be provided later.
