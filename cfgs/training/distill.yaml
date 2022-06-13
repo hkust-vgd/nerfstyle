@@ -10,6 +10,8 @@ distill:
   init_data_bsize: 160000
   max_retries: 1
   nets_bsize: 1024
+  occ_pt_ratio: 0.4
+  occ_pt_max_iters: 100
   quantile: 0.99
   retrain: null
   sparsity_check: 0.01

@@ -341,9 +341,6 @@ class TrainConfig(Config):
     num_iterations: int
     """No. of total iterations for training."""
 
-    test_skip: int
-    """Render the test images every N frames."""
-
     test_before_train: bool
     """Render the test images once before the first iteration."""
 
@@ -374,6 +371,14 @@ class TrainConfig(Config):
 
         nets_bsize: int
         """No. of subnetworks to simultaneously train during one round of training."""
+
+        occ_pt_ratio: float
+        """For each subnetwork, keep generating points until there are at least this percentage of
+           points that falls in occupied space."""
+
+        occ_pt_max_iters: int
+        """Maximum iterations for the above point generation scheme. Set to 0 to disable
+           regenerating points."""
 
         quantile: float
         """Quantile to use during metric evaluation."""

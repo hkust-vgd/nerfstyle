@@ -12,6 +12,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchtyping import TensorType, patch_typeguard
 from tqdm import tqdm
 from typeguard import typechecked
+from zmq import device
 
 from .base import Trainer
 from common import OccupancyGrid
@@ -166,6 +167,10 @@ class DistillTrainer(Trainer):
 
         self.round_ctr = 0
 
+        self.occ_map = None
+        if cfg.occ_map is not None:
+            self.occ_map = OccupancyGrid.load(cfg.occ_map, self.logger).to(self.device)
+
         # Entities initialized when training new batch of nodes
         self.num_nets = 0
         self.cur_nodes = []
@@ -179,15 +184,13 @@ class DistillTrainer(Trainer):
         if cfg.ckpt_path is None:
             # Initialize node queues
             self.logger.info('Checking for empty nodes...')
-            if cfg.occ_map is not None:
-                occ_map = OccupancyGrid.load(cfg.occ_map, self.logger).to(self.device)
+            if self.occ_map is not None:
                 for node in tqdm(self.root_nodes):
                     eps = 1E-5
                     pts = torch.tensor(np.stack([node.min_pt, node.max_pt]) + eps,
                                        dtype=torch.float32, device=self.device)
-                    indices = occ_map.pts_to_indices(pts)
-                    start, end = indices.cpu().numpy()
-                    subgrid = occ_map.grid[start[0]:end[0], start[1]:end[1], start[2]:end[2]]
+                    start, end = self.occ_map.pts_to_indices(pts).cpu().numpy()
+                    subgrid = self.occ_map.grid[start[0]:end[0], start[1]:end[1], start[2]:end[2]]
 
                     if np.mean(subgrid) < self.train_cfg.distill.sparsity_check:
                         self.trained_nodes.append(node)
@@ -268,8 +271,33 @@ class DistillTrainer(Trainer):
 
         def gen_one_node(node):
             node = node[0]
-            node_pts, node_pts_norm = utils.get_random_pts(
-                samples_per_net, node.min_pt, node.max_pt)
+            node_pts = np.empty((samples_per_net, 3))
+
+            target = int(samples_per_net * self.train_cfg.distill.occ_pt_ratio)
+            start, iters = 0, 0
+            while True:
+                remain = samples_per_net - start
+                tmp_pts_np = np.random.uniform(node.min_pt, node.max_pt, size=(remain, 3))
+                tmp_pts_occ = self.occ_map(torch.tensor(tmp_pts_np, device=self.device))
+                occ_count = torch.sum(tmp_pts_occ).item()
+                if (occ_count > target) or (iters >= self.train_cfg.distill.occ_pt_max_iters):
+                    node_pts[start:] = tmp_pts_np
+                    break
+
+                iters += 1
+                node_pts[start:start+occ_count] = tmp_pts_np[tmp_pts_occ.cpu().numpy()]
+                start += occ_count
+                target -= occ_count
+
+            if iters >= self.train_cfg.distill.occ_pt_max_iters:
+                warn_msg_fmt = 'Max iterations exceeded when generating points for node "{}"'
+                self.logger.warning(warn_msg_fmt.format(node.idx))
+
+            node_size = node.max_pt - node.min_pt
+            node_pts_norm = (node_pts - node.min_pt) * 2. / node_size - 1.
+
+            node_pts = torch.tensor(node_pts)
+            node_pts_norm = torch.tensor(node_pts_norm)
             node_dirs = utils.get_random_dirs(samples_per_net)
             return node_pts, node_pts_norm, node_dirs
 

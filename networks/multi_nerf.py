@@ -92,8 +92,8 @@ class DynamicMultiNerf(MultiNerf):
         bbox = load_bbox(dataset_cfg)
         if dataset_cfg.replica_cfg is not None:
             bbox.scale(dataset_cfg.replica_cfg.scale_factor)
-        self.global_min_pt = torch.tensor(bbox.min_pt)
-        self.global_max_pt = torch.tensor(bbox.max_pt)
+        self.global_min_pt = bbox.min_pt.clone().detach()
+        self.global_max_pt = bbox.max_pt.clone().detach()
         self.net_res = torch.tensor(dataset_cfg.net_res)
         self.mid_pts = torch.empty((self.num_nets, 3))
 
@@ -130,7 +130,7 @@ class DynamicMultiNerf(MultiNerf):
         return ckpt
 
     def load_nodes(self, nodes):
-        assert len(nodes) == self.num_nets
+        # assert len(nodes) == self.num_nets
         nodes.sort(key=(lambda node: node['idx']))
 
         min_pt = np.ones(3) * np.inf
