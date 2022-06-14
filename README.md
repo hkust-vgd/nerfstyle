@@ -58,15 +58,16 @@ Trained models (KiloNeRF) + occupancy grids are provided below for testing.
 |Synthetic_NeRF|`lego`|||
 |Replica|`office4`|[Dropbox](https://www.dropbox.com/s/7817p9eg8u2v2y0/replica_office4.tar.gz?dl=0)|498.36 MB|
 |Replica|`room1`|[Dropbox](https://www.dropbox.com/s/2lj420du7voqzlp/replica_room1.tar.gz?dl=0)|388.89 MB|
-|Replica|`room2`|||
+|Replica|`room2`|[Dropbox](https://www.dropbox.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz?dl=0)|500.53 MB|
 
 ## Usage
 
 **Render a finetuned KiloNeRF model**
 
-> ```bash
-> python render.py <cfg_path> <out_folder_name> <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count <max_count> --out-dims <W> <H>
-> ```
+```bash
+python render.py <cfg_path> <out_folder_name> <ckpt_path> --mode finetune \
+  --occ-map <occ_map_path> --max-count <max_count> --out-dims <W> <H>
+```
 
 - `cfg_path`: Path to config file, located in `cfgs`
 - `out_folder_name`: Name of output folder, generated in `outputs`
@@ -77,13 +78,15 @@ Trained models (KiloNeRF) + occupancy grids are provided below for testing.
 - `--out-dims`: Output dimension
   - Exclude flag to render at default dataset dimension
 
-> ```bash
-> # Example: Synthetic-NeRF "lego" scene
-> python render.py cfgs/dataset/nerf_lego.yaml lego <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count 100
-> 
-> # Example: Replica "room1" scene in 1024x768 resolution
-> python render.py cfgs/dataset/replica_room1.yaml room1 <ckpt_path> --mode finetune --occ-map <occ_map_path> --max-count 100 --out-dims 1024 768
-> ```
+```bash
+# Example: Synthetic-NeRF "lego" scene
+python render.py cfgs/dataset/nerf_lego.yaml lego <ckpt_path> --mode finetune \
+  --occ-map <occ_map_path> --max-count 100
+
+# Example: Replica "room1" scene in 1024x768 resolution
+python render.py cfgs/dataset/replica_room1.yaml room1 <ckpt_path> --mode finetune \
+  --occ-map cc_map_path> --max-count 100 --out-dims 1024 768
+```
 
 **Training models on datasets**
 

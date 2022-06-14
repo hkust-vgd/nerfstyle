@@ -22,6 +22,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('dataset_cfg')
     parser.add_argument('occ_map_path')
+    parser.add_argument('--sparsity-thres', type=float, default=0.0025)
     args = parser.parse_args()
 
     # Load stuff
@@ -50,7 +51,7 @@ def main():
         z1, z2 = z_coords[k], z_coords[k+1]
         net_grid[i, j, k] = np.sum(grid[x1:x2, y1:y2, z1:z2])
 
-    threshold = 4096 * 0.01
+    threshold = 4096 * args.sparsity_thres
     print('Networks to be trained:', np.sum(net_grid >= threshold))
     print('Networks to be skipped:', np.sum(net_grid < threshold))
 
@@ -62,7 +63,7 @@ def main():
         ax1.clear()
         ax1.imshow(grid[:, :, z], vmin=0., vmax=1.)
         ax2.clear()
-        ax2.imshow(net_grid[:, :, z // 16] > 10, vmin=0., vmax=1.)
+        ax2.imshow(net_grid[:, :, z // 16] > threshold, vmin=0., vmax=1.)
 
     update(0)  # Initial plot
 

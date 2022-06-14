@@ -245,7 +245,8 @@ class DistillTrainer(Trainer):
         intervals = [np.linspace(start, end, num+1) for start, end, num in
                      zip(bbox.min_pt, bbox.max_pt, net_res)]
 
-        node_idx_fmt = '{{:0{}d}}_{{:0{}d}}_{{:0{}d}}'.format(*[len(str(dim)) for dim in net_res])
+        # format: '{:0id}_{:0jd}_{:0kd}', i/j/k/ is no. of digits
+        node_idx_fmt = '_'.join(['{:0' + str(len(str(dim-1))) + 'd}' for dim in net_res])
 
         nodes = []
         for pt in itertools.product(*[range(ax) for ax in net_res]):
@@ -275,12 +276,13 @@ class DistillTrainer(Trainer):
 
             target = int(samples_per_net * self.train_cfg.distill.occ_pt_ratio)
             start, iters = 0, 0
+            max_iters = self.train_cfg.distill.occ_pt_max_iters
             while True:
                 remain = samples_per_net - start
                 tmp_pts_np = np.random.uniform(node.min_pt, node.max_pt, size=(remain, 3))
                 tmp_pts_occ = self.occ_map(torch.tensor(tmp_pts_np, device=self.device))
                 occ_count = torch.sum(tmp_pts_occ).item()
-                if (occ_count > target) or (iters >= self.train_cfg.distill.occ_pt_max_iters):
+                if (occ_count > target) or (iters >= max_iters):
                     node_pts[start:] = tmp_pts_np
                     break
 
@@ -289,7 +291,7 @@ class DistillTrainer(Trainer):
                 start += occ_count
                 target -= occ_count
 
-            if iters >= self.train_cfg.distill.occ_pt_max_iters:
+            if (iters >= max_iters) and (max_iters > 0):
                 warn_msg_fmt = 'Max iterations exceeded when generating points for node "{}"'
                 self.logger.warning(warn_msg_fmt.format(node.idx))
 

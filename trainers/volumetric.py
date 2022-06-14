@@ -294,12 +294,14 @@ class StyleTrainer(VolumetricTrainer):
         intr = self.train_set.intrinsics
         sparse_intr = intr.scale(*self.style_dims)
         near, far = self.train_set.near, self.train_set.far
+        bg_color = self.dataset_cfg.bg_color
 
         train_renderer = Renderer(
-            self.model, self.net_cfg, sparse_intr, near, far,
+            self.model, self.net_cfg, sparse_intr, near, far, bg_color,
             precrop_frac=self.train_cfg.precrop_fraction, name='trainRenderer')
         test_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, name='testRenderer')
+            self.model, self.net_cfg, intr, near, far, bg_color,
+            name='testRenderer', use_ert=True)
 
         return train_renderer, test_renderer
 
