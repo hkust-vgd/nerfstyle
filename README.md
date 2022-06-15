@@ -6,7 +6,7 @@
 ## Description
 
 A NeRF renderer written from scratch.
-- Implementation based from [KiloNeRF](https://github.com/creiser/kilonerf) (Reiser et al.)
+- Implementation based on [KiloNeRF](https://github.com/creiser/kilonerf) (Reiser et al.)
   - Uses a composition of multiple NeRF models to speed up inference
   - Helps break down large scenes into smaller, local radiance fields
 - Optimized with CUDA extensions
@@ -87,6 +87,29 @@ python render.py cfgs/dataset/nerf_lego.yaml lego <ckpt_path> --mode finetune \
 # Example: Replica "room1" scene in 1024x768 resolution
 python render.py cfgs/dataset/replica_room1.yaml room1 <ckpt_path> --mode finetune \
   --occ-map cc_map_path> --max-count 100 --out-dims 1024 768
+```
+
+**Style transfer**
+
+```bash
+python train.py <cfg_path> <run_folder_name> --mode finetune --ckpt-path <ckpt_path> \
+  --occ-map <occ_map_path> --style-image <style_image_path> --num-iterations <num_iter>
+```
+
+- `cfg_path`: Path to config file, located in `cfgs`
+- `run_folder_name`: Name of output folder, generated in `runs`
+- `--ckpt-path`: Checkpoint path (pretrained DL link above)
+- `--occ-map`: Occupancy map path (pretrained DL link above)
+- `--style-image`: Path to style image; can be JPEG or PNG image
+- `--num-iterations`: No. of iterations *including* trained iterations in the checkpoint.
+  - All models above are trained for 800,000 iterations.
+  - Hence, enter `900000` in order to train a style transfer model for 100,000 iterations.
+
+```bash
+# Example: Transfer Replica "office4" scene to a style image for 100K iterations
+python train.py cfgs/dataset/replica_office4.yaml <run_folder_name> --mode finetune \
+  --ckpt-path <ckpt_path> --occ-map <occ_map_path> --style-image <image_path> \
+  --num-iterations 900000
 ```
 
 **Training models on datasets**

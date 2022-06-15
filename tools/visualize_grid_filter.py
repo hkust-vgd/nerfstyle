@@ -24,7 +24,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('dataset_cfg')
     parser.add_argument('occ_map_path')
-    parser.add_argument('--sparsity-thres', type=float, default=0.0025)
+    parser.add_argument('--sparsity-thres', type=float, default=0.01)
     args = parser.parse_args()
 
     # Load stuff
