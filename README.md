@@ -1,5 +1,6 @@
 # NeRF Renderer
 
+![](images/cover.jpg)
 
 
 ## Description
@@ -55,7 +56,7 @@ Trained models (KiloNeRF) + occupancy grids are provided below for testing.
 |Dataset|Scene|DL link|Size|
 |---|---|---|---|
 |Synthetic_NeRF|`chair`|[Dropbox](https://www.dropbox.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz?dl=0)|78.83 MB|
-|Synthetic_NeRF|`lego`|||
+|Synthetic_NeRF|`lego`|[Dropbox](https://www.dropbox.com/s/twkcv2sfge2c8y4/nerf_lego.tar.gz?dl=0)|52.16 MB|
 |Replica|`office4`|[Dropbox](https://www.dropbox.com/s/7817p9eg8u2v2y0/replica_office4.tar.gz?dl=0)|498.36 MB|
 |Replica|`room1`|[Dropbox](https://www.dropbox.com/s/2lj420du7voqzlp/replica_room1.tar.gz?dl=0)|388.89 MB|
 |Replica|`room2`|[Dropbox](https://www.dropbox.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz?dl=0)|500.53 MB|
