@@ -64,9 +64,6 @@ class ReplicaDataset(BaseDataset):
         f = self.cfg.replica_cfg.focal_ratio * max(H, W)
         self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
 
-        self.near = self.cfg.replica_cfg.near
-        self.far = self.cfg.replica_cfg.far
-
     def __str__(self):
         desc = 'Replica dataset \"{}\" with {:d} entries'
         return desc.format(self.cfg.replica_cfg.name, len(self))

@@ -29,7 +29,7 @@ class BaseDataset(Dataset, ABC):
         self.frame_ids: List[int]
         self.frame_str_ids: List[str]
         self.intrinsics: Intrinsics
-        self.near, self.far = 0., 0.
+        self.near, self.far = self.cfg.near, self.cfg.far
 
     def _alpha2white(self):
         assert self.imgs.shape[1] == 4

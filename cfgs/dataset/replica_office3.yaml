@@ -8,11 +8,11 @@ net_res:
 - 45
 - 47
 - 14
+near: 0.5
+far: 8.75
 bg_color: black
 replica_cfg:
   name: office3
-  near: 0.5
-  far: 8.75
   focal_ratio: 0.5
   traj_ids: [7, 8, 12, 41, 45, 49, 52, 53, 56, 58, 67, 68, 69, 71, 75]
   black2white: false

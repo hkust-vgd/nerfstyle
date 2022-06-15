@@ -237,6 +237,12 @@ class DatasetConfig(Config):
     net_res: tuple
     """Local NeRF grid resolution for each dimension."""
 
+    near: float
+    """Near plane distance for sampling."""
+
+    far: float
+    """Far plane distance for sampling."""
+
     bg_color: str
     """Background color. Any matplotlib.colors compatible string is acceptable."""
 
@@ -244,12 +250,6 @@ class DatasetConfig(Config):
     class ReplicaConfig:
         name: str
         """Name of scene."""
-
-        near: float
-        """Near plane distance for sampling."""
-
-        far: float
-        """Far plane distance for sampling."""
 
         focal_ratio: float
         """Set focal length to frame side length times this value."""

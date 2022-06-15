@@ -34,20 +34,34 @@ A NeRF renderer written from scratch.
    - Follow the instructions up to `sudo -E make install`.
    - The extension will be compiled at runtime with Ninja.
 
+**Synthetic NeRF dataset**
+
+1. Download and unzip dataset to desired directory.
+
+```bash
+wget https://dl.fbaipublicfiles.com/nsvf/dataset/Synthetic_NeRF.zip
+unzip Synthetic_NeRF.zip
+```
+
+2. Overwrite the saved `Synthetic_NeRF` directory with `data/Synthetic_NeRF`. This replaces the bounding boxes with values from KiloNeRF.
+
+```bash
+cp -r data/Synthetic_NeRF/* <parent_path>/Synthetic_NeRF/
+```
+
+3. Change `root_path` in the config files (`./cfgs/dataset/nerf_<scene_name>.yaml`).
+
 **Replica dataset**
 
 1. Download frames / trajectories for Replica at the repository for [Generative Scene Networks](https://github.com/apple/ml-gsn#datasets) (DeVries et al.).
 2. Extract to desired location.
-3. Copy the `data/bboxes` directory to the Replica root directory. The folder structure should be as follows:
+3. Copy the `data/Replica/bboxes` directory to the Replica root directory.
 
-```
-replica_all/
-├─ bboxes/
-├─ test/
-└─ train/
+```bash
+cp -r data/Replica/bboxes <parent_path>/replica_all/
 ```
 
-4. Change `root_path` in the config files (`./cfgs/dataset/replica_<scene_name>.yaml`)
+4. Change `root_path` in the config files (`./cfgs/dataset/replica_<scene_name>.yaml`).
 
 ## Trained models
 
@@ -55,11 +69,11 @@ Trained models (KiloNeRF) + occupancy grids are provided below for testing.
 
 |Dataset|Scene|DL link|Size|
 |---|---|---|---|
-|Synthetic_NeRF|`chair`|[Dropbox](https://www.dropbox.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz?dl=0)|78.83 MB|
-|Synthetic_NeRF|`lego`|[Dropbox](https://www.dropbox.com/s/twkcv2sfge2c8y4/nerf_lego.tar.gz?dl=0)|52.16 MB|
-|Replica|`office4`|[Dropbox](https://www.dropbox.com/s/7817p9eg8u2v2y0/replica_office4.tar.gz?dl=0)|498.36 MB|
-|Replica|`room1`|[Dropbox](https://www.dropbox.com/s/2lj420du7voqzlp/replica_room1.tar.gz?dl=0)|388.89 MB|
-|Replica|`room2`|[Dropbox](https://www.dropbox.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz?dl=0)|500.53 MB|
+|Synthetic_NeRF|`chair`|[Dropbox](https://www.dropbox.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz?dl=0) / [Direct](https://dl.dropboxusercontent.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz)|78.83 MB|
+|Synthetic_NeRF|`lego`|[Dropbox](https://www.dropbox.com/s/twkcv2sfge2c8y4/nerf_lego.tar.gz?dl=0) / [Direct](https://dl.dropboxusercontent.com/s/twkcv2sfge2c8y4/nerf_lego.tar.gz)|52.16 MB|
+|Replica|`office4`|[Dropbox](https://www.dropbox.com/s/7817p9eg8u2v2y0/replica_office4.tar.gz?dl=0) / [Direct](https://dl.dropboxusercontent.com/s/7817p9eg8u2v2y0/replica_office4.tar.gz)|498.36 MB|
+|Replica|`room1`|[Dropbox](https://www.dropbox.com/s/2lj420du7voqzlp/replica_room1.tar.gz?dl=0) / [Direct](https://dl.dropboxusercontent.com/s/2lj420du7voqzlp/replica_room1.tar.gz)|388.89 MB|
+|Replica|`room2`|[Dropbox](https://www.dropbox.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz?dl=0) / [Direct](https://dl.dropboxusercontent.com/s/ye6joiw5n55wdqb/nerf_chair.tar.gz)|500.53 MB|
 
 ## Usage
 

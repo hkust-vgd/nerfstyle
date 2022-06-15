@@ -42,8 +42,6 @@ class NSVFDataset(BaseDataset):
         # self.near = np.amin(np.linalg.norm(pts - closest_pts, axis=1))
         # self.far = np.amax(np.linalg.norm(pts - furthest_pts, axis=1))
 
-        self.near, self.far = utils.load_matrix(nf_path)[0]
-
     def __str__(self):
         name = self.cfg.root_path.stem
         desc = 'NSVF dataset \"{}\" with {:d} entries'

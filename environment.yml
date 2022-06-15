@@ -18,5 +18,6 @@ dependencies:
     - einops
     - open3d
     - pyyaml
+    - simple-parsing
     - tabulate
     - torchtyping

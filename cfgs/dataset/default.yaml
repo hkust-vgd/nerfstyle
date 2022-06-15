@@ -1,2 +1,4 @@
+near: 2.0
+far: 6.0
 bg_color: white
 replica_cfg: null
