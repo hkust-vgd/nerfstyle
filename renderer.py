@@ -1,5 +1,4 @@
 from typing import Dict, List, Optional, TypeVar
-from matplotlib import use
 import numpy as np
 import torch
 from torchtyping import TensorType
