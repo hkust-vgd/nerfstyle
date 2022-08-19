@@ -30,7 +30,7 @@ density_net_config = {
 rgb_net_config = {
     'otype': 'FullyFusedMLP',
     'activation': 'ReLU',
-    'output_activation': 'None',
+    'output_activation': 'Sigmoid',
     'n_neurons': 64,
     'n_hidden_layers': 2
 }
@@ -65,12 +65,23 @@ class TCNerf(TensorModule):
             network_config=rgb_net_config
         )
 
-    def forward(self, pts, dirs):
+        self.bound = 3.5
+
+    def save_ckpt(self, ckpt):
+        ckpt['model'] = self.state_dict()
+        return ckpt
+
+    def forward(self, pts, dirs=None, ert_mask=None):
+        pts = (pts + self.bound) / (2 * self.bound)
         x_embedded = self.x_embedder(pts)
-        d_embedded = self.d_embedder(dirs)
-
         density_output = self.density_net(x_embedded)
-        rgb_input = torch.concat((density_output, d_embedded), axis=-1)
-        rgb_output = self.rgb_net(rgb_input)
+        densities = density_output[:, 0:1]
 
-        return rgb_output, density_output[:, 0:1]
+        if dirs is None:
+            return densities
+
+        dirs = (dirs + 1) / 2
+        d_embedded = self.d_embedder(dirs)
+        rgb_input = torch.concat((density_output, d_embedded), axis=-1)
+        rgbs = self.rgb_net(rgb_input)
+        return rgbs, densities

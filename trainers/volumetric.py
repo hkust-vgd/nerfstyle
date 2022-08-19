@@ -16,7 +16,7 @@ from config import BaseConfig
 from data import get_dataset, load_bbox
 from loss import FeatureExtractor, MattingLaplacian, StyleLoss
 from networks.multi_nerf import DynamicMultiNerf
-from networks.single_nerf import SingleNerf
+from networks.tcnn_nerf import TCNerf
 from renderer import Renderer
 from trainers.base import Trainer
 import utils
@@ -39,7 +39,8 @@ class VolumetricTrainer(Trainer):
 
         # Initialize model
         if cfg.mode == TrainMode.PRETRAIN:
-            self.model = SingleNerf(self.net_cfg)
+            # self.model = SingleNerf(self.net_cfg)
+            self.model = TCNerf()
         elif cfg.mode == TrainMode.FINETUNE:
             self.model = DynamicMultiNerf(self.net_cfg, self.dataset_cfg)
         else:
@@ -103,7 +104,7 @@ class VolumetricTrainer(Trainer):
             num_rays=self.train_cfg.num_rays_per_batch, name='trainRenderer')
         test_renderer = Renderer(
             self.model, self.net_cfg, intr, near, far, bg_color,
-            name='testRenderer', use_ert=True)
+            name='testRenderer', use_ert=False)
 
         return train_renderer, test_renderer
 

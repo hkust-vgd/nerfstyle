@@ -70,7 +70,7 @@ class Renderer:
     @use_precrop.setter
     def use_precrop(self, value: bool):
         if value != self._use_precrop:
-            msg = 'Turining {} square cropping'.format('on' if value else 'off')
+            msg = 'Training {} square cropping'.format('on' if value else 'off')
             self.logger.info(msg)
             self._use_precrop = value
 
