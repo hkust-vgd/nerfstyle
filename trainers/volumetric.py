@@ -104,7 +104,7 @@ class VolumetricTrainer(Trainer):
             num_rays=self.train_cfg.num_rays_per_batch, name='trainRenderer')
         test_renderer = Renderer(
             self.model, self.net_cfg, intr, near, far, bg_color,
-            name='testRenderer', use_ert=False)
+            name='testRenderer', use_ert=True)
 
         return train_renderer, test_renderer
 
@@ -245,12 +245,17 @@ class VolumetricTrainer(Trainer):
         self.iter_ctr += 1
         self.time1 = time.time()
 
-        new_lr = self.train_cfg.initial_learning_rate
-        if self.train_cfg.learning_rate_decay:
-            new_lr = self.train_cfg.initial_learning_rate * \
-                (0.1 ** (self.iter_ctr / self.train_cfg.learning_rate_decay))
+        # TODO: Use torch.optim.lr_scheduler.LambdaLR
+        lr = self.train_cfg.initial_learning_rate
+        decay = self.train_cfg.learning_rate_decay
+        if decay < 0:
+            decay = self.train_cfg.num_iterations
+
+        if decay != 0:
+            lr = self.train_cfg.initial_learning_rate * \
+                (0.1 ** (self.iter_ctr / decay))
             for param_group in self.optim.param_groups:
-                param_group['lr'] = new_lr
+                param_group['lr'] = lr
 
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
@@ -258,7 +263,7 @@ class VolumetricTrainer(Trainer):
         if self.check_interval(self.train_cfg.intervals.test):
             self.test_networks()
         if self.check_interval(self.train_cfg.intervals.log):
-            self.log_status(losses, new_lr)
+            self.log_status(losses, lr)
         if self.check_interval(self.train_cfg.intervals.ckpt, final=True):
             self.save_ckpt()
 

@@ -71,7 +71,7 @@ class TCNerf(TensorModule):
         ckpt['model'] = self.state_dict()
         return ckpt
 
-    def forward(self, pts, dirs=None, ert_mask=None):
+    def _forward(self, pts, dirs=None):
         pts = (pts + self.bound) / (2 * self.bound)
         x_embedded = self.x_embedder(pts)
         density_output = self.density_net(x_embedded)
@@ -84,4 +84,17 @@ class TCNerf(TensorModule):
         d_embedded = self.d_embedder(dirs)
         rgb_input = torch.concat((density_output, d_embedded), axis=-1)
         rgbs = self.rgb_net(rgb_input)
+        return rgbs, densities
+
+    def forward(self, pts, dirs=None, ert_mask=None):
+        if ert_mask is None or torch.sum(ert_mask) == len(pts):
+            return self._forward(pts, dirs)
+
+        assert dirs is not None
+        rgbs = torch.zeros((len(pts), 3), device=self.device, dtype=torch.half)
+        densities = torch.zeros((len(pts), 1), device=self.device, dtype=torch.half)
+
+        if torch.sum(ert_mask) > 0:
+            rgbs[ert_mask], densities[ert_mask] = self._forward(
+                pts[ert_mask], dirs[ert_mask])
         return rgbs, densities
