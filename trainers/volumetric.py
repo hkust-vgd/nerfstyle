@@ -85,7 +85,7 @@ class VolumetricTrainer(Trainer):
         self.logger.info('Loaded ' + str(self.test_set))
 
         # Initialize renderers
-        self.train_renderer, self.test_renderer = self._get_renderers()
+        self.renderer = self._get_renderer()
 
         # Load bbox if needed
         self.bbox = None
@@ -93,20 +93,17 @@ class VolumetricTrainer(Trainer):
             self.bbox = load_bbox(self.dataset_cfg).to(self.device)
             self.bbox.scale(self.train_cfg.sparsity_bbox_scale)
 
-    def _get_renderers(self) -> Tuple[Renderer, Renderer]:
+    def _get_renderer(self) -> Renderer:
         intr = self.train_set.intrinsics
         near, far = self.train_set.near, self.train_set.far
         bg_color = self.dataset_cfg.bg_color
 
-        train_renderer = Renderer(
+        renderer = Renderer(
             self.model, self.net_cfg, intr, near, far, bg_color,
             precrop_frac=self.train_cfg.precrop_fraction,
             num_rays=self.train_cfg.num_rays_per_batch, name='trainRenderer')
-        test_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, bg_color,
-            name='testRenderer', use_ert=True)
 
-        return train_renderer, test_renderer
+        return renderer
 
     def calc_loss(
         self,
@@ -215,7 +212,7 @@ class VolumetricTrainer(Trainer):
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.frame_str_ids[i]
             img, pose = img.to(self.device), pose.to(self.device)
-            output = self.test_renderer.render(pose)
+            output = self.renderer.render_raymarching(pose, training=False)
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
@@ -227,8 +224,10 @@ class VolumetricTrainer(Trainer):
         img, pose = next(self.train_loader)
         img, pose = img.to(self.device), pose.to(self.device)
 
-        self.train_renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
-        output = self.train_renderer.render(pose, img)
+        self.renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
+        # output = self.train_renderer.render(pose, img)
+        with torch.cuda.amp.autocast(enabled=True):
+            output = self.renderer.render_raymarching(pose, img, training=True)
 
         if self.train_cfg.sparsity_lambda > 0.:
             sparsity_pts = torch.rand((self.train_cfg.sparsity_samples, 3), device=self.device)
@@ -258,6 +257,9 @@ class VolumetricTrainer(Trainer):
                 param_group['lr'] = lr
 
         # Misc. tasks at different intervals
+        if self.check_interval(16):
+            with torch.cuda.amp.autocast(enabled=True):
+                self.renderer.update_raymarching()
         if self.check_interval(self.train_cfg.intervals.print):
             self.print_status(losses)
         if self.check_interval(self.train_cfg.intervals.test):
@@ -296,20 +298,17 @@ class StyleTrainer(VolumetricTrainer):
         self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
         self.photo_loss = MattingLaplacian(device=self.device)
 
-    def _get_renderers(self) -> Tuple[Renderer, Renderer]:
+    def _get_renderers(self) -> Renderer:
         intr = self.train_set.intrinsics
         sparse_intr = intr.scale(*self.style_dims)
         near, far = self.train_set.near, self.train_set.far
         bg_color = self.dataset_cfg.bg_color
 
-        train_renderer = Renderer(
+        renderer = Renderer(
             self.model, self.net_cfg, sparse_intr, near, far, bg_color,
             precrop_frac=self.train_cfg.precrop_fraction, name='trainRenderer')
-        test_renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, bg_color,
-            name='testRenderer', use_ert=True)
 
-        return train_renderer, test_renderer
+        return renderer
 
     def calc_loss(
         self,

@@ -1,15 +1,155 @@
-from typing import Dict, List, Optional, TypeVar
+import itertools
+from packaging import version as pver
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar
 import numpy as np
 import torch
+from torch import Tensor
 from torchtyping import TensorType
 
-from common import Intrinsics
+from common import Intrinsics, RayBatch, TensorModule
 from config import NetworkConfig
 from nerf_lib import nerf_lib
 from networks.nerf import Nerf
+import raymarching
 import utils
 
 T = TypeVar('T', bound='Renderer')
+
+
+def custom_meshgrid(*args):
+    if pver.parse(torch.__version__) < pver.parse('1.10'):
+        return torch.meshgrid(*args)
+    else:
+        return torch.meshgrid(*args, indexing='ij')
+
+
+class Raymarcher(TensorModule):
+    def __init__(
+        self,
+        model: Callable,
+        bound: float,
+        update_iter: int,
+        cascade: int = 1,
+        grid_size: int = 128,
+        min_near: float = 0.2,
+        t_thresh: float = 1e-4
+    ) -> None:
+        super().__init__()
+
+        self.model = model
+        self.bound = bound
+        self.cascade = cascade
+        self.grid_size = grid_size
+        self.update_iter = update_iter
+        self.min_near = min_near
+        self.t_thresh = t_thresh
+
+        self.aabb = torch.tensor([-bound, -bound, -bound, bound, bound, bound])
+
+        bitfield_size = cascade * (grid_size ** 3) // 8
+        self.density_grid = torch.zeros((cascade, grid_size ** 3))
+        self.density_bitfield = torch.zeros((bitfield_size, ), dtype=torch.uint8)
+        self.step_counter = torch.zeros((update_iter, 2), dtype=torch.int32)
+        self.local_step = 0
+        self.mean_count = 0
+
+        self.density_scale = 1
+        self.density_thresh = 0.01
+        self.mean_density = 0
+        self.iter_density = 0
+        self.full_iter_thresh = 16
+
+    def _compute_occ_sigmas(self, xyzs, cas):
+        bound = min(2 ** cas, self.bound)
+        half_grid_size = bound / self.grid_size
+        cas_xyzs = xyzs * (bound - half_grid_size)
+        cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
+
+        sigmas = self.model(cas_xyzs).reshape(-1).detach() * self.density_scale
+        return sigmas
+
+    @torch.no_grad()
+    def update_state(
+        self,
+        decay: float = 0.95,
+        S: int = 128
+    ) -> None:
+        tmp_grid = -torch.ones_like(self.density_grid)
+
+        if self.iter_density < self.full_iter_thresh:
+            # Full update
+            X, Y, Z = [torch.arange(
+                self.grid_size, dtype=torch.int32, device=self.device).split(S)
+                for _ in range(3)]
+
+            for (xs, ys, zs) in itertools.product(X, Y, Z):
+                xx, yy, zz = custom_meshgrid(xs, ys, zs)
+                coords = torch.cat([
+                    xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)
+                indices = raymarching.morton3D(coords).long()
+                xyzs = 2 * coords.float() / (self.grid_size - 1) - 1
+
+                for cas in range(self.cascade):
+                    tmp_grid[cas, indices] = self._compute_occ_sigmas(xyzs, cas)
+
+        else:
+            # Partial update
+            N = self.grid_size ** 3 // 4
+            for cas in range(self.cascade):
+                coords = torch.randint(0, self.grid_size, (N, 3), device=self.device)
+                indices = raymarching.morton3D(coords).long()
+
+                occ_indices = torch.nonzero(self.density_grid[cas] > 0).squeeze(-1)
+                rand_mask = torch.randint(0, occ_indices.shape[0], [N],
+                                          dtype=torch.long, device=self.device)
+                occ_indices = occ_indices[rand_mask]
+                occ_coords = raymarching.morton3D_invert(occ_indices)
+
+                indices = torch.cat([indices, occ_indices], dim=0)
+                coords = torch.cat([coords, occ_coords], dim=0)
+
+                xyzs = 2 * coords.float() / (self.grid_size - 1) - 1
+                tmp_grid[cas, indices] = self._compute_occ_sigmas(xyzs, cas)
+
+        valid_mask = (self.density_grid >= 0) & (tmp_grid >= 0)
+        self.density_grid[valid_mask] = torch.maximum(
+            self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
+        self.mean_density = torch.mean(self.density_grid.clamp(min=0)).item()
+        self.iter_density += 1
+
+        density_thresh = min(self.mean_density, self.density_thresh)
+        self.density_bitfield = raymarching.packbits(
+            self.density_grid, density_thresh, self.density_bitfield)
+
+        total_step = min(self.update_iter, self.local_step)
+        if total_step > 0:
+            self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
+        self.local_step = 0
+
+    def render(
+        self,
+        rays: RayBatch
+    ) -> Tuple[Tensor, Tensor]:
+        origin = torch.tile(rays.origin, (len(rays.dests), 1))
+        nears, fars = raymarching.near_far_from_aabb(origin, rays.dests, self.aabb, self.min_near)
+
+        counter = self.step_counter[self.local_step % self.update_iter]
+        counter.zero_()
+        self.local_step += 1
+
+        pts, dirs, deltas, rays_info = raymarching.march_rays_train(
+            origin, rays.dests, self.bound, self.density_bitfield, self.cascade, self.grid_size,
+            nears, fars, counter, self.mean_count, True, 128, True, 0., 1024)
+
+        rgbs, sigmas = self.model(pts, dirs)
+        sigmas = sigmas * self.density_scale
+
+        weights_sum, depth, image = raymarching.composite_rays_train(
+            sigmas, rgbs, deltas, rays_info, self.t_thresh)
+        image = image + (1 - weights_sum).unsqueeze(-1)
+        depth = torch.clamp(depth - nears, min=0) / (fars - nears)
+
+        return image, depth
 
 
 class Renderer:
@@ -62,6 +202,10 @@ class Renderer:
 
         self.logger.info('Renderer "{}" initialized'.format(name))
         self.clock = utils.Clock()
+
+        bound = self.model.bound
+        self.update_step = 16
+        self.raymarcher = Raymarcher(self.model, bound, self.update_step).to(self.device)
 
     @property
     def use_precrop(self):
@@ -169,3 +313,22 @@ class Renderer:
 
         output['rgb_map'] = rgb_buf + (1 - acc_buf) * self.bg_color
         return output
+
+    def render_raymarching(
+        self: T,
+        pose: TensorType[4, 4],
+        img: Optional[TensorType['H', 'W', 3]] = None,
+        training: bool = False
+    ) -> Dict[str, torch.Tensor]:
+        output = {}
+
+        precrop_frac = self.precrop_frac if self._use_precrop else 1.
+        rays, output['target'] = nerf_lib.generate_rays(
+            pose, self.intr, img, precrop=precrop_frac, bsize=self.num_rays)
+
+        assert training
+        output['rgb_map'], output['trans_map'] = self.raymarcher.render(rays)
+        return output
+
+    def update_raymarching(self):
+        self.raymarcher.update_state()

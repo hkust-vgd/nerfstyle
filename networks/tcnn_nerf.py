@@ -1,4 +1,6 @@
 import torch
+from torch.autograd import Function
+from torch.cuda.amp import custom_bwd, custom_fwd
 import tinycudann as tcnn
 
 from common import TensorModule
@@ -34,6 +36,23 @@ rgb_net_config = {
     'n_neurons': 64,
     'n_hidden_layers': 2
 }
+
+
+class _trunc_exp(Function):
+    @staticmethod
+    @custom_fwd(cast_inputs=torch.float32)  # cast to float32
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        return torch.exp(x)
+
+    @staticmethod
+    @custom_bwd
+    def backward(ctx, g):
+        x = ctx.saved_tensors[0]
+        return g * torch.exp(x.clamp(-15, 15))
+
+
+trunc_exp = _trunc_exp.apply
 
 
 class TCNerf(TensorModule):
@@ -75,16 +94,16 @@ class TCNerf(TensorModule):
         pts = (pts + self.bound) / (2 * self.bound)
         x_embedded = self.x_embedder(pts)
         density_output = self.density_net(x_embedded)
-        densities = density_output[:, 0:1]
+        sigmas = trunc_exp(density_output[:, 0:1])
 
         if dirs is None:
-            return densities
+            return sigmas
 
         dirs = (dirs + 1) / 2
         d_embedded = self.d_embedder(dirs)
         rgb_input = torch.concat((density_output, d_embedded), axis=-1)
         rgbs = self.rgb_net(rgb_input)
-        return rgbs, densities
+        return rgbs, sigmas
 
     def forward(self, pts, dirs=None, ert_mask=None):
         if ert_mask is None or torch.sum(ert_mask) == len(pts):
