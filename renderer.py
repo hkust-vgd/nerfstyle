@@ -1,4 +1,5 @@
 import itertools
+from operator import ne
 from packaging import version as pver
 from typing import Callable, Dict, List, Optional, Tuple, TypeVar
 import numpy as np
@@ -43,6 +44,8 @@ class Raymarcher(TensorModule):
         self.update_iter = update_iter
         self.min_near = min_near
         self.t_thresh = t_thresh
+
+        self.max_steps = 1024
 
         self.aabb = torch.tensor([-bound, -bound, -bound, bound, bound, bound])
 
@@ -137,15 +140,58 @@ class Raymarcher(TensorModule):
         counter.zero_()
         self.local_step += 1
 
-        pts, dirs, deltas, rays_info = raymarching.march_rays_train(
+        xyzs, dirs, deltas, rays_info = raymarching.march_rays_train(
             origin, rays.dests, self.bound, self.density_bitfield, self.cascade, self.grid_size,
-            nears, fars, counter, self.mean_count, True, 128, True, 0., 1024)
+            nears, fars, counter, self.mean_count, True, 128, True, 0., self.max_steps)
 
-        rgbs, sigmas = self.model(pts, dirs)
+        rgbs, sigmas = self.model(xyzs, dirs)
         sigmas = sigmas * self.density_scale
 
         weights_sum, depth, image = raymarching.composite_rays_train(
             sigmas, rgbs, deltas, rays_info, self.t_thresh)
+        image = image + (1 - weights_sum).unsqueeze(-1)
+        depth = torch.clamp(depth - nears, min=0) / (fars - nears)
+
+        return image, depth
+
+    def render_test(
+        self,
+        rays: RayBatch
+    ) -> Tuple[Tensor, Tensor]:
+        origin = torch.tile(rays.origin, (len(rays.dests), 1))
+        nears, fars = raymarching.near_far_from_aabb(origin, rays.dests, self.aabb, self.min_near)
+
+        N = len(rays)
+        weights_sum = torch.zeros(N, dtype=torch.float32, device=self.device)
+        depth = torch.zeros(N, dtype=torch.float32, device=self.device)
+        image = torch.zeros(N, 3, dtype=torch.float32, device=self.device)
+
+        n_alive = N
+        rays_alive = torch.arange(n_alive, dtype=torch.int32, device=self.device)
+        rays_t = nears.clone()
+
+        step = 0
+        while step < self.max_steps:
+            n_alive = len(rays_alive)
+            if n_alive <= 0:
+                break
+
+            n_step = max(min(N // n_alive, 8), 1)
+            xyzs, dirs, deltas = raymarching.march_rays(
+                n_alive, n_step, rays_alive, rays_t, origin, rays.dests,
+                self.bound, self.density_bitfield, self.cascade, self.grid_size,
+                nears, fars, 128, False, 0., self.max_steps)
+
+            rgbs, sigmas = self.model(xyzs, dirs)
+            sigmas = sigmas * self.density_scale
+
+            raymarching.composite_rays(
+                n_alive, n_step, rays_alive, rays_t,
+                sigmas, rgbs, deltas, weights_sum, depth, image, self.t_thresh)
+
+            rays_alive = rays_alive[rays_alive >= 0]
+            step += n_step
+
         image = image + (1 - weights_sum).unsqueeze(-1)
         depth = torch.clamp(depth - nears, min=0) / (fars - nears)
 
@@ -322,12 +368,15 @@ class Renderer:
     ) -> Dict[str, torch.Tensor]:
         output = {}
 
+        # TODO: tmp
+        num_rays = self.num_rays if training else None
+
         precrop_frac = self.precrop_frac if self._use_precrop else 1.
         rays, output['target'] = nerf_lib.generate_rays(
-            pose, self.intr, img, precrop=precrop_frac, bsize=self.num_rays)
+            pose, self.intr, img, precrop=precrop_frac, bsize=num_rays)
 
-        assert training
-        output['rgb_map'], output['trans_map'] = self.raymarcher.render(rays)
+        render_fn = self.raymarcher.render if training else self.raymarcher.render_test
+        output['rgb_map'], output['trans_map'] = render_fn(rays)
         return output
 
     def update_raymarching(self):

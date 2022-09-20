@@ -212,7 +212,9 @@ class VolumetricTrainer(Trainer):
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.frame_str_ids[i]
             img, pose = img.to(self.device), pose.to(self.device)
-            output = self.renderer.render_raymarching(pose, training=False)
+            with torch.no_grad():
+                with torch.cuda.amp.autocast(enabled=True):
+                    output = self.renderer.render_raymarching(pose, training=False)
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
