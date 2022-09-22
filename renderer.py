@@ -16,6 +16,8 @@ import utils
 
 T = TypeVar('T', bound='Renderer')
 
+STEP_CTR_SIZE = 16
+
 
 def custom_meshgrid(*args):
     if pver.parse(torch.__version__) < pver.parse('1.10'):
@@ -52,15 +54,14 @@ class Raymarcher(TensorModule):
         bitfield_size = cascade * (grid_size ** 3) // 8
         self.density_grid = torch.zeros((cascade, grid_size ** 3))
         self.density_bitfield = torch.zeros((bitfield_size, ), dtype=torch.uint8)
-        self.step_counter = torch.zeros((update_iter, 2), dtype=torch.int32)
+        self.step_counter = torch.zeros((STEP_CTR_SIZE, 2), dtype=torch.int32)
         self.local_step = 0
         self.mean_count = 0
 
         self.density_scale = 1
-        self.density_thresh = 0.01
+        self.density_thresh = 10
         self.mean_density = 0
         self.iter_density = 0
-        self.full_iter_thresh = 16
 
     def _compute_occ_sigmas(self, xyzs, cas):
         bound = min(2 ** cas, self.bound)
@@ -79,7 +80,7 @@ class Raymarcher(TensorModule):
     ) -> None:
         tmp_grid = -torch.ones_like(self.density_grid)
 
-        if self.iter_density < self.full_iter_thresh:
+        if self.iter_density < STEP_CTR_SIZE:
             # Full update
             X, Y, Z = [torch.arange(
                 self.grid_size, dtype=torch.int32, device=self.device).split(S)
@@ -124,19 +125,22 @@ class Raymarcher(TensorModule):
         self.density_bitfield = raymarching.packbits(
             self.density_grid, density_thresh, self.density_bitfield)
 
-        total_step = min(self.update_iter, self.local_step)
+        total_step = min(STEP_CTR_SIZE, self.local_step)
         if total_step > 0:
             self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
         self.local_step = 0
 
-    def render(
+    def render_train(
         self,
         rays: RayBatch
     ) -> Tuple[Tensor, Tensor]:
+        if self.local_step % self.update_iter == 0:
+            self.update_state()
+
         origin = torch.tile(rays.origin, (len(rays.dests), 1))
         nears, fars = raymarching.near_far_from_aabb(origin, rays.dests, self.aabb, self.min_near)
 
-        counter = self.step_counter[self.local_step % self.update_iter]
+        counter = self.step_counter[self.local_step % STEP_CTR_SIZE]
         counter.zero_()
         self.local_step += 1
 
@@ -368,16 +372,13 @@ class Renderer:
     ) -> Dict[str, torch.Tensor]:
         output = {}
 
-        # TODO: tmp
+        # TODO: fix this?
         num_rays = self.num_rays if training else None
 
         precrop_frac = self.precrop_frac if self._use_precrop else 1.
         rays, output['target'] = nerf_lib.generate_rays(
             pose, self.intr, img, precrop=precrop_frac, bsize=num_rays)
 
-        render_fn = self.raymarcher.render if training else self.raymarcher.render_test
+        render_fn = self.raymarcher.render_train if training else self.raymarcher.render_test
         output['rgb_map'], output['trans_map'] = render_fn(rays)
         return output
-
-    def update_raymarching(self):
-        self.raymarcher.update_state()

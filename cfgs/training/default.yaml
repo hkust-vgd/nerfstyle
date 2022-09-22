@@ -1,4 +1,4 @@
-num_rays_per_batch: 1024
+num_rays_per_batch: 4096
 precrop_fraction: 0.5
 precrop_iterations: 0
 initial_learning_rate: 0.01

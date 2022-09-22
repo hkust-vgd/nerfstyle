@@ -259,9 +259,9 @@ class VolumetricTrainer(Trainer):
                 param_group['lr'] = lr
 
         # Misc. tasks at different intervals
-        if self.check_interval(16):
-            with torch.cuda.amp.autocast(enabled=True):
-                self.renderer.update_raymarching()
+        # if self.check_interval(16):
+        #     with torch.cuda.amp.autocast(enabled=True):
+        #         self.renderer.update_raymarching()
         if self.check_interval(self.train_cfg.intervals.print):
             self.print_status(losses)
         if self.check_interval(self.train_cfg.intervals.test):
