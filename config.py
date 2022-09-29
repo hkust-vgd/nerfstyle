@@ -1,12 +1,14 @@
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import dataclasses
 from dataclasses import dataclass
-from dacite import from_dict
-from dacite import Config as DaciteConfig
 from enum import Enum
 from pathlib import Path
-from simple_parsing.docstring import get_attribute_docstring
 from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
+
+from dacite import from_dict
+from dacite import Config as DaciteConfig
+from dacite.exceptions import UnexpectedDataError
+from simple_parsing.docstring import get_attribute_docstring
 import yaml
 
 from common import TrainMode
@@ -74,24 +76,38 @@ class Config:
     default_path: Optional[str] = None
     print_col_width: int = 30
 
-    types_cfg = DaciteConfig(type_hooks={
+    types_cfg = DaciteConfig(strict=True, type_hooks={
         Path: lambda p: Path(p).expanduser(),
         TrainMode: lambda m: TrainMode[m.upper()],
         tuple: tuple
     })
 
     @classmethod
-    def read_nargs(
+    def _get_cfg(
         cls: T,
+        cfg_dict: Dict
+    ) -> 'Config':
+        obj = None
+        try:
+            obj = from_dict(data_class=cls, data=cfg_dict, config=cls.types_cfg)
+            logger.info('Loaded {} options:'.format(cls.__name__))
+            obj.print()
+        except UnexpectedDataError as e:
+            print(cls.__name__)
+            logger.error('Unrecognized parameters found while parsing {}: {}'.format(
+                cls.__name__, ', '.join(list(e.keys))))
+
+        return obj
+
+    @classmethod
+    def read_nargs(
+        cls: T
     ) -> Tuple[T, List[str]]:
         parser = cls.create_parser()
         args, nargs = parser.parse_known_args()
         cfg_dict = vars(args)
 
-        obj = from_dict(data_class=cls, data=cfg_dict, config=cls.types_cfg)
-        logger.info('Loaded the following {} options:'.format(cls.__name__))
-        obj.print()
-
+        obj = cls._get_cfg(cfg_dict)
         return obj, nargs
 
     @classmethod
@@ -121,10 +137,7 @@ class Config:
             args, nargs = parser.parse_known_args(nargs)
             cfg_dict = unflatten(vars(args))
 
-        obj = from_dict(data_class=cls, data=cfg_dict, config=cls.types_cfg)
-        logger.info('Loaded the following {} options:'.format(cls.__name__))
-        obj.print()
-
+        obj = cls._get_cfg(cfg_dict)
         return obj, nargs
 
     @classmethod
@@ -231,17 +244,8 @@ class DatasetConfig(Config):
     type: str
     """Type of dataset."""
 
-    grid_res: tuple
-    """Occupancy grid resolution for each dimension."""
-
-    net_res: tuple
-    """Local NeRF grid resolution for each dimension."""
-
-    near: float
-    """Near plane distance for sampling."""
-
-    far: float
-    """Far plane distance for sampling."""
+    bound: float
+    """Radius of bounding box for sampling. Should contain entire scene."""
 
     bg_color: str
     """Background color. Any matplotlib.colors compatible string is acceptable."""
@@ -298,28 +302,51 @@ class NetworkConfig(Config):
     network_seed: Optional[int]
     """Separate RNG seed for initializing networks."""
 
-    num_samples_per_ray: int
-    """No. of samples per ray."""
-
-    pts_bsize: int
-    """Batch size of point samples for evaluating the MLP network."""
-
-    pixels_bsize: int
-    """Batch size of pixels for integrating the volumetric rendering equation."""
-
-    ert_bsize: int
-    """Max no. of points to evaluate per ray, when using ERT."""
-
-    ert_trans_thres: float
-    """Terminate rays with transmittance lower than this threshold, when using ERT."""
-
     default_path = 'cfgs/network/default.yaml'
+
+
+@dataclass
+class RendererConfig(Config):
+    cascade: int
+    """No. of cascade levels for occupancy grid."""
+
+    grid_size: int
+    """Side length of occupancy grid."""
+
+    grid_bsize: Optional[int]
+    """Side length of subgrid for batching. Default is same as grid_size (no batch)."""
+
+    update_iter: int
+    """No. of training iterations before updating occupancy grid once."""
+
+    min_near: float
+    """Minimum distance for near point."""
+
+    t_thresh: float
+    """Transmittance threshold during ray accumulation."""
+
+    max_steps: int
+    """Maximum no. of sampled points along each ray."""
+
+    update_thres: int
+    """No. of inital steps for sampling all grid cells."""
+
+    density_scale: float
+    """Scaling factor for density value."""
+
+    density_thresh: float
+    """Threshold value for determining occupancy."""
+
+    density_decay: float
+    """Multiply densities by this value for each update."""
+
+    default_path = 'cfgs/renderer/default.yaml'
 
 
 @dataclass
 class TrainConfig(Config):
     num_rays_per_batch: int
-    """No. of rays to randomly generate per image."""
+    """No. of rays to sample for each training iteration."""
 
     precrop_iterations: int
     """Perform cropping for this number of iterations."""
@@ -409,9 +436,6 @@ class TrainConfig(Config):
 
     sparsity_lambda: float
     """Sparsity loss multiplier."""
-
-    sparsity_bbox_scale: float
-    """Scale BBox by this factor, then sample points inside to compute sparsity loss."""
 
     sparsity_exp_coeff: float
     """Exponential coefficient in sparsity loss computation."""

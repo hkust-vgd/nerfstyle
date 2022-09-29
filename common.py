@@ -1,10 +1,12 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
+from locale import normalize
 from typing import Optional, TypeVar, Union
 
 import numpy as np
 import torch
+from torch import Tensor
 from torchtyping import TensorType, patch_typeguard
 from typeguard import typechecked
 import utils
@@ -74,7 +76,7 @@ class LossValue:
     log_name: str
     """Identifier when logging on TensorBoard."""
 
-    value: torch.Tensor
+    value: Tensor
     """Loss tensor."""
 
 
@@ -82,10 +84,10 @@ class LossValue:
 class RayBatch:
     """A batch of N rays sharing a common origin point."""
 
-    origin: torch.Tensor
+    origin: Tensor
     """(3,) array. Origin of ray batch."""
 
-    dests: torch.Tensor
+    dests: Tensor
     """(N, 3) array. Direction vectors of rays relative to origin."""
 
     def __post_init__(self):
@@ -104,10 +106,10 @@ class RayBatch:
         """Interpolate ray batch.
 
         Args:
-            coeffs (torch.Tensor[N, K]): Array of K coefficients for each ray.
+            coeffs (Tensor[N, K]): Array of K coefficients for each ray.
 
         Returns:
-            torch.Tensor[N, K, 3]: Array of points at interpolated positions for each ray.
+            Tensor[N, K, 3]: Array of points at interpolated positions for each ray.
         """
         assert len(coeffs) == len(self)
         out = torch.einsum('nc, nk -> nkc', self.dests, coeffs) + self.origin
@@ -157,30 +159,52 @@ class BBox(TensorModule):
         bbox_max: np.ndarray
     ) -> None:
         super().__init__()
-        self._min_pt = bbox_min
-        self._max_pt = bbox_max
+        self.min_pt = torch.tensor(bbox_min, dtype=torch.float32)
+        self.max_pt = torch.tensor(bbox_max, dtype=torch.float32)
+
+    @classmethod
+    def from_radius(self, radius: float) -> 'BBox':
+        bbox_max = np.array([radius, radius, radius])
+        return BBox(-bbox_max, bbox_max)
 
     @property
-    def min_pt(self) -> torch.Tensor:
-        return torch.tensor(self._min_pt, device=self.device)
-
-    @property
-    def max_pt(self) -> torch.Tensor:
-        return torch.tensor(self._max_pt, device=self.device)
-
-    def size(self) -> torch.Tensor:
+    def size(self) -> Tensor:
         return self.max_pt - self.min_pt
 
-    def mid_pt(self) -> torch.Tensor:
+    @property
+    def mid_pt(self) -> Tensor:
         return (self.max_pt + self.min_pt) / 2
 
-    def scale(self, factor: float):
-        mid_pt = (self._min_pt + self._max_pt) / 2
-        self._min_pt = (self._min_pt - mid_pt) * factor + mid_pt
-        self._max_pt = (self._max_pt - mid_pt) * factor + mid_pt
+    def scale(self, factor: float) -> None:
+        """
+        Scale the box in-place by a factor.
+
+        Args:
+            factor (float): Scale factor.
+        """
+        self.min_pt = (self.min_pt - self.mid_pt) * factor + self.mid_pt
+        self.max_pt = (self.max_pt - self.mid_pt) * factor + self.mid_pt
+
+    def normalize(self, pts: Tensor) -> Tensor:
+        """
+        Normalize a list of coordinates.
+        self.min_pt and self.max_pt would correspond to [0, 0, 0] and
+        [1, 1, 1] respectively.
+
+        Args:
+            pts (Tensor): input coordinates.
+
+        Returns:
+            Tensor: normalized coordinates.
+        """
+        return (pts - self.min_pt) / self.size
 
     def forward(self):
         raise NotImplementedError
+
+    def __repr__(self):
+        return repr('BBox[min_pt={}, max_pt={}]'.format(
+            repr(self.min_pt), repr(self.max_pt)))
 
 
 class RotatedBBox(BBox):

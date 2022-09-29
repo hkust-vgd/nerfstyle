@@ -3,7 +3,7 @@ from typing import List, Optional
 import numpy as np
 from torch.utils.data import Dataset
 
-from common import Intrinsics
+from common import Intrinsics, BBox
 from config import DatasetConfig
 
 
@@ -26,10 +26,10 @@ class BaseDataset(Dataset, ABC):
         # Common dataset interface
         self.imgs: np.ndarray
         self.poses: np.ndarray
+        self.bbox: BBox
         self.frame_ids: List[int]
         self.frame_str_ids: List[str]
         self.intrinsics: Intrinsics
-        self.near, self.far = self.cfg.near, self.cfg.far
 
     def _alpha2white(self):
         assert self.imgs.shape[1] == 4

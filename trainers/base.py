@@ -7,7 +7,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from common import TrainMode
-from config import BaseConfig, DatasetConfig, NetworkConfig, TrainConfig
+from config import BaseConfig, DatasetConfig, NetworkConfig, RendererConfig, TrainConfig
 from nerf_lib import nerf_lib
 import utils
 
@@ -50,6 +50,7 @@ class Trainer(ABC):
         self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg_path, nargs=nargs)
         self.train_cfg, nargs = TrainConfig.load_nargs(nargs=nargs)
         self.net_cfg, nargs = NetworkConfig.load_nargs(net_cfg_path, nargs=nargs)
+        self.render_cfg, nargs = RendererConfig.load_nargs(nargs=nargs)
         if len(nargs) > 0:
             self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 

@@ -1,7 +1,7 @@
 from argparse import Namespace
 from functools import partial
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import einops
 import numpy as np
@@ -13,9 +13,8 @@ from tqdm import tqdm
 
 from common import LossValue, TrainMode
 from config import BaseConfig
-from data import get_dataset, load_bbox
+from data import get_dataset
 from loss import FeatureExtractor, MattingLaplacian, StyleLoss
-from networks.multi_nerf import DynamicMultiNerf
 from networks.tcnn_nerf import TCNerf
 from renderer import Renderer
 from trainers.base import Trainer
@@ -37,12 +36,22 @@ class VolumetricTrainer(Trainer):
         """
         super().__init__(__name__, cfg, nargs)
 
+        # Initialize dataset
+        self.train_set = get_dataset(self.dataset_cfg, 'train')
+        self.train_set.bbox = self.train_set.bbox.to(self.device)
+        self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
+        self.logger.info('Loaded ' + str(self.train_set))
+
+        self.test_set = get_dataset(self.dataset_cfg, 'test',
+                                    max_count=self.train_cfg.max_eval_count)
+        self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
+        self.logger.info('Loaded ' + str(self.test_set))
+
         # Initialize model
         if cfg.mode == TrainMode.PRETRAIN:
-            # self.model = SingleNerf(self.net_cfg)
-            self.model = TCNerf()
+            self.model = TCNerf(self.net_cfg, self.train_set.bbox)
         elif cfg.mode == TrainMode.FINETUNE:
-            self.model = DynamicMultiNerf(self.net_cfg, self.dataset_cfg)
+            self.logger.error('Not implemented now')
         else:
             self.logger.error('Wrong training mode: {}'.format(cfg.mode.name))
 
@@ -74,36 +83,12 @@ class VolumetricTrainer(Trainer):
             if cfg.occ_map is not None:
                 self.model.load_occ_map(cfg.occ_map)
 
-        # Initialize dataset
-        self.train_set = get_dataset(self.dataset_cfg, 'train')
-        self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
-        self.logger.info('Loaded ' + str(self.train_set))
-
-        self.test_set = get_dataset(self.dataset_cfg, 'test',
-                                    max_count=self.train_cfg.max_eval_count)
-        self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
-        self.logger.info('Loaded ' + str(self.test_set))
-
-        # Initialize renderers
-        self.renderer = self._get_renderer()
-
-        # Load bbox if needed
-        self.bbox = None
-        if self.train_cfg.sparsity_lambda > 0.:
-            self.bbox = load_bbox(self.dataset_cfg).to(self.device)
-            self.bbox.scale(self.train_cfg.sparsity_bbox_scale)
-
-    def _get_renderer(self) -> Renderer:
-        intr = self.train_set.intrinsics
-        near, far = self.train_set.near, self.train_set.far
-        bg_color = self.dataset_cfg.bg_color
-
-        renderer = Renderer(
-            self.model, self.net_cfg, intr, near, far, bg_color,
-            precrop_frac=self.train_cfg.precrop_fraction,
-            num_rays=self.train_cfg.num_rays_per_batch, name='trainRenderer')
-
-        return renderer
+        # Initialize renderer
+        self.renderer = Renderer(
+            self.model, self.render_cfg, self.train_set.intrinsics, self.dataset_cfg.bound,
+            bg_color=self.dataset_cfg.bg_color,
+            precrop_frac=self.train_cfg.precrop_fraction
+        )
 
     def calc_loss(
         self,
@@ -214,7 +199,7 @@ class VolumetricTrainer(Trainer):
             img, pose = img.to(self.device), pose.to(self.device)
             with torch.no_grad():
                 with torch.cuda.amp.autocast(enabled=True):
-                    output = self.renderer.render_raymarching(pose, training=False)
+                    output = self.renderer.render(pose, training=False)
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
@@ -227,13 +212,14 @@ class VolumetricTrainer(Trainer):
         img, pose = img.to(self.device), pose.to(self.device)
 
         self.renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
-        # output = self.train_renderer.render(pose, img)
         with torch.cuda.amp.autocast(enabled=True):
-            output = self.renderer.render_raymarching(pose, img, training=True)
+            num_rays = self.train_cfg.num_rays_per_batch
+            output = self.renderer.render(pose, img, num_rays=num_rays, training=True)
 
         if self.train_cfg.sparsity_lambda > 0.:
+            bbox = self.train_set.bbox
             sparsity_pts = torch.rand((self.train_cfg.sparsity_samples, 3), device=self.device)
-            sparsity_pts = sparsity_pts * self.bbox.size() + self.bbox.min_pt
+            sparsity_pts = sparsity_pts * bbox.size() + bbox.min_pt
             output['sparsity'] = self.model(sparsity_pts)
 
         losses = self.calc_loss(output)
@@ -259,9 +245,6 @@ class VolumetricTrainer(Trainer):
                 param_group['lr'] = lr
 
         # Misc. tasks at different intervals
-        # if self.check_interval(16):
-        #     with torch.cuda.amp.autocast(enabled=True):
-        #         self.renderer.update_raymarching()
         if self.check_interval(self.train_cfg.intervals.print):
             self.print_status(losses)
         if self.check_interval(self.train_cfg.intervals.test):
@@ -299,18 +282,6 @@ class StyleTrainer(VolumetricTrainer):
         self.style_image = torch.tensor(style_image_np, device=self.device)
         self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
         self.photo_loss = MattingLaplacian(device=self.device)
-
-    def _get_renderers(self) -> Renderer:
-        intr = self.train_set.intrinsics
-        sparse_intr = intr.scale(*self.style_dims)
-        near, far = self.train_set.near, self.train_set.far
-        bg_color = self.dataset_cfg.bg_color
-
-        renderer = Renderer(
-            self.model, self.net_cfg, sparse_intr, near, far, bg_color,
-            precrop_frac=self.train_cfg.precrop_fraction, name='trainRenderer')
-
-        return renderer
 
     def calc_loss(
         self,

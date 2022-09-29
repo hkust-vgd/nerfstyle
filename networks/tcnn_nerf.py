@@ -3,7 +3,8 @@ from torch.autograd import Function
 from torch.cuda.amp import custom_bwd, custom_fwd
 import tinycudann as tcnn
 
-from common import TensorModule
+from common import TensorModule, BBox
+from config import NetworkConfig
 
 
 pos_encoding_config = {
@@ -56,8 +57,16 @@ trunc_exp = _trunc_exp.apply
 
 
 class TCNerf(TensorModule):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        cfg: NetworkConfig,
+        bbox: BBox
+    ) -> None:
         super(TCNerf, self).__init__()
+
+        self.cfg = cfg
+        self.bounds_bbox = bbox
+        # TODO: parametrize
 
         self.n_output_dims = 16
 
@@ -90,8 +99,8 @@ class TCNerf(TensorModule):
         ckpt['model'] = self.state_dict()
         return ckpt
 
-    def _forward(self, pts, dirs=None):
-        pts = (pts + self.bound) / (2 * self.bound)
+    def forward(self, pts, dirs=None):
+        pts = self.bounds_bbox.normalize(pts)
         x_embedded = self.x_embedder(pts)
         density_output = self.density_net(x_embedded)
         sigmas = trunc_exp(density_output[:, 0:1])
@@ -104,16 +113,3 @@ class TCNerf(TensorModule):
         rgb_input = torch.concat((density_output, d_embedded), axis=-1)
         rgbs = self.rgb_net(rgb_input)
         return rgbs, sigmas
-
-    def forward(self, pts, dirs=None, ert_mask=None):
-        if ert_mask is None or torch.sum(ert_mask) == len(pts):
-            return self._forward(pts, dirs)
-
-        assert dirs is not None
-        rgbs = torch.zeros((len(pts), 3), device=self.device, dtype=torch.half)
-        densities = torch.zeros((len(pts), 1), device=self.device, dtype=torch.half)
-
-        if torch.sum(ert_mask) > 0:
-            rgbs[ert_mask], densities[ert_mask] = self._forward(
-                pts[ert_mask], dirs[ert_mask])
-        return rgbs, densities

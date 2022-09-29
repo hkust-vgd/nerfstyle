@@ -1,0 +1,11 @@
+cascade: 1
+grid_size: 128
+grid_bsize: null
+update_iter: 16
+min_near: 0.2
+t_thresh: 0.0001
+max_steps: 1024
+update_thres: 256
+density_scale: 1
+density_thresh: 10
+density_decay: 0.95
