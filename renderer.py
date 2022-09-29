@@ -1,3 +1,4 @@
+from math import inf
 import itertools
 from operator import ne
 from packaging import version as pver
@@ -41,13 +42,17 @@ class Raymarcher(TensorModule):
 
         self.model = model
         self.bound = bound
+
+        # Config settings
         self.cascade = cascade
         self.grid_size = grid_size
         self.update_iter = update_iter
         self.min_near = min_near
         self.t_thresh = t_thresh
-
         self.max_steps = 1024
+        self.update_thres = 256
+        self.density_scale = 1
+        self.density_thresh = 10
 
         self.aabb = torch.tensor([-bound, -bound, -bound, bound, bound, bound])
 
@@ -57,13 +62,18 @@ class Raymarcher(TensorModule):
         self.step_counter = torch.zeros((STEP_CTR_SIZE, 2), dtype=torch.int32)
         self.local_step = 0
         self.mean_count = 0
-
-        self.density_scale = 1
-        self.density_thresh = 10
         self.mean_density = 0
-        self.iter_density = 0
 
     def _compute_occ_sigmas(self, xyzs, cas):
+        """Compute sigma values for raymarching occupancy grid.
+
+        Args:
+            xyzs (Tensor[N, 3]): Normalized 3D coordinates.
+            cas (int): Cascade level.
+
+        Returns:
+            sigmas (Tensor[N, ]): Density values.
+        """
         bound = min(2 ** cas, self.bound)
         half_grid_size = bound / self.grid_size
         cas_xyzs = xyzs * (bound - half_grid_size)
@@ -75,13 +85,14 @@ class Raymarcher(TensorModule):
     @torch.no_grad()
     def update_state(
         self,
+        full: bool,
         decay: float = 0.95,
         S: int = 128
     ) -> None:
         tmp_grid = -torch.ones_like(self.density_grid)
 
-        if self.iter_density < STEP_CTR_SIZE:
-            # Full update
+        if full:
+            # Full update: sample all CAS * (GRID_SIZE ** 3) cells
             X, Y, Z = [torch.arange(
                 self.grid_size, dtype=torch.int32, device=self.device).split(S)
                 for _ in range(3)]
@@ -91,13 +102,16 @@ class Raymarcher(TensorModule):
                 coords = torch.cat([
                     xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)
                 indices = raymarching.morton3D(coords).long()
+
+                # Normalize to [-1, 1]
                 xyzs = 2 * coords.float() / (self.grid_size - 1) - 1
 
                 for cas in range(self.cascade):
                     tmp_grid[cas, indices] = self._compute_occ_sigmas(xyzs, cas)
 
         else:
-            # Partial update
+            # Random sampling update
+            self.tmp = True
             N = self.grid_size ** 3 // 4
             for cas in range(self.cascade):
                 coords = torch.randint(0, self.grid_size, (N, 3), device=self.device)
@@ -119,23 +133,22 @@ class Raymarcher(TensorModule):
         self.density_grid[valid_mask] = torch.maximum(
             self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
         self.mean_density = torch.mean(self.density_grid.clamp(min=0)).item()
-        self.iter_density += 1
 
         density_thresh = min(self.mean_density, self.density_thresh)
         self.density_bitfield = raymarching.packbits(
             self.density_grid, density_thresh, self.density_bitfield)
 
-        total_step = min(STEP_CTR_SIZE, self.local_step)
-        if total_step > 0:
-            self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
-        self.local_step = 0
+        total_step = min(STEP_CTR_SIZE, self.update_iter)
+        assert total_step > 0
+        self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
 
     def render_train(
         self,
         rays: RayBatch
     ) -> Tuple[Tensor, Tensor]:
         if self.local_step % self.update_iter == 0:
-            self.update_state()
+            is_full = (self.local_step < self.update_thres)
+            self.update_state(full=is_full)
 
         origin = torch.tile(rays.origin, (len(rays.dests), 1))
         nears, fars = raymarching.near_far_from_aabb(origin, rays.dests, self.aabb, self.min_near)

@@ -84,7 +84,7 @@ class TCNerf(TensorModule):
             network_config=rgb_net_config
         )
 
-        self.bound = 3.5
+        self.bound = 1.2
 
     def save_ckpt(self, ckpt):
         ckpt['model'] = self.state_dict()
