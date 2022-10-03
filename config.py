@@ -105,9 +105,8 @@ class Config:
     ) -> Tuple[T, List[str]]:
         parser = cls.create_parser()
         args, nargs = parser.parse_known_args()
-        cfg_dict = vars(args)
 
-        obj = cls._get_cfg(cfg_dict)
+        obj = cls._get_cfg(vars(args))
         return obj, nargs
 
     @classmethod

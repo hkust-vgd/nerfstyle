@@ -95,10 +95,8 @@ class VolumetricTrainer(Trainer):
         output: Dict[str, torch.Tensor]
     ) -> Dict[str, LossValue]:
         assert output['target'] is not None
-
         rendered = output['rgb_map']
         target = output['target']
-        assert target is not None
 
         mse_loss = torch.mean((rendered - target) ** 2)
         losses = {
