@@ -274,32 +274,47 @@ class DatasetConfig(Config):
 
 @dataclass
 class NetworkConfig(Config):
-    x_enc_count: int
-    """No. of frequencies (pairs of sines / cosines) to encode the input position."""
-
-    d_enc_count: int
-    """No. of frequencies (pairs of sines / cosines) to encode the view direction."""
-
-    x_layers: int
-    """No. of linear layers in position MLP (i.e. before color / density split)."""
-
-    d_layers: int
-    """No. of linear layers in density MLP (i.e. after position / direction merge)."""
-
-    x_widths: Union[int, List[int]]
-    """No. of channels for each layer of position MLP."""
-
-    d_widths: Union[int, List[int]]
-    """No. of channels for each layer of density MLP."""
-
-    x_skips: List[int]
-    """Indices of hidden layers to insert skip connection from input position."""
-
-    activation: str
-    """Activation function after each linear layer."""
-
     network_seed: Optional[int]
     """Separate RNG seed for initializing networks."""
+
+    density_out_dims: int
+    """No. of dimensions for density network output."""
+
+    density_hidden_dims: int
+    """No. of dimensions for density network hidden layers."""
+
+    density_hidden_layers: int
+    """No. of hidden layers for density network."""
+
+    rgb_hidden_dims: int
+    """No. of dimensions for RGB network hidden layers."""
+
+    rgb_hidden_layers: int
+    """No. of hidden layers for RGB network."""
+
+    @dataclass
+    class HashGridConfig:
+        n_lvls: int
+        """No. of levels."""
+
+        n_feats_per_lvl: int
+        """No. of feature dimensions per level."""
+
+        hashmap_size: int
+        """Log2 base of hash table size of each level."""
+
+        min_res: int
+        """Coarsest resolution value."""
+
+        max_res_coeff: float
+        """Resolution coefficient. Multiply with bounding box diameter\
+            to obtain finest resolution value."""
+
+    pos_enc: HashGridConfig
+    """Config settings for positional encoding."""
+
+    dir_enc_sh_deg: int
+    """No. of basis degrees for SH encoding of view direction."""
 
     default_path = 'cfgs/network/default.yaml'
 

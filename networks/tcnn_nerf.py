@@ -1,3 +1,5 @@
+from concurrent.futures.process import _MAX_WINDOWS_WORKERS
+import numpy as np
 import torch
 from torch.autograd import Function
 from torch.cuda.amp import custom_bwd, custom_fwd
@@ -34,19 +36,20 @@ class TCNerf(TensorModule):
 
         self.cfg = cfg
         self.bounds_bbox = bbox
-        # TODO: parametrize
 
-        self.n_output_dims = 15
+        pos_enc_cfg = self.cfg.pos_enc
+        max_res = pos_enc_cfg.max_res_coeff * torch.max(self.bounds_bbox.size).item()
+        per_lvl_scale = np.exp2(np.log2(max_res / pos_enc_cfg.min_res) / (pos_enc_cfg.n_lvls - 1))
 
         self.x_embedder = tcnn.Encoding(
             n_input_dims=3,
             encoding_config={
                 'otype': 'HashGrid',  # TODO: replace with 'DenseGrid'
-                'n_levels': 16,
-                'n_features_per_level': 2,
-                'log2_hashmap_size': 19,
-                'base_resolution': 16,
-                'per_level_scale': 1.4062964748768472
+                'n_levels': pos_enc_cfg.n_lvls,
+                'n_features_per_level': pos_enc_cfg.n_feats_per_lvl,
+                'log2_hashmap_size': pos_enc_cfg.hashmap_size,
+                'base_resolution': pos_enc_cfg.min_res,
+                'per_level_scale': per_lvl_scale
             }
         )
 
@@ -54,23 +57,23 @@ class TCNerf(TensorModule):
             n_input_dims=3,
             encoding_config={
                 'otype': 'SphericalHarmonics',
-                'degree': 4
+                'degree': self.cfg.dir_enc_sh_deg
             }
         )
 
         self.density_net = tcnn.Network(
             n_input_dims=self.x_embedder.n_output_dims,
-            n_output_dims=self.n_output_dims + 1,
+            n_output_dims=self.cfg.density_out_dims,
             network_config={
                 'otype': 'FullyFusedMLP',
                 'activation': 'ReLU',
                 'output_activation': 'None',
-                'n_neurons': 64,
-                'n_hidden_layers': 1
+                'n_neurons': self.cfg.density_hidden_dims,
+                'n_hidden_layers': self.cfg.density_hidden_layers
             }
         )
 
-        rgb_net_input_dims = self.density_net.n_output_dims + self.n_output_dims
+        rgb_net_input_dims = self.density_net.n_output_dims + self.cfg.density_out_dims - 1
         self.rgb_net = tcnn.Network(
             n_input_dims=rgb_net_input_dims,
             n_output_dims=3,
@@ -78,8 +81,8 @@ class TCNerf(TensorModule):
                 'otype': 'FullyFusedMLP',
                 'activation': 'ReLU',
                 'output_activation': 'Sigmoid',
-                'n_neurons': 64,
-                'n_hidden_layers': 2
+                'n_neurons': self.cfg.rgb_hidden_dims,
+                'n_hidden_layers': self.cfg.rgb_hidden_layers
             }
         )
 

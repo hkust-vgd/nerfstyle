@@ -1,9 +1,13 @@
-x_enc_count: 10
-d_enc_count: 4
-x_layers: 8
-d_layers: 2
-x_widths: 256
-d_widths: [256, 128]
-x_skips: [5]
-activation: relu
 network_seed: 80000
+density_out_dims: 16
+density_hidden_dims: 64
+density_hidden_layers: 1
+rgb_hidden_dims: 64
+rgb_hidden_layers: 2
+pos_enc:
+  n_lvls: 16
+  n_feats_per_lvl: 2
+  hashmap_size: 19
+  min_res: 16
+  max_res_coeff: 1024
+dir_enc_sh_deg: 4
