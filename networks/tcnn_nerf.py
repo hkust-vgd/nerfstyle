@@ -1,9 +1,9 @@
-from concurrent.futures.process import _MAX_WINDOWS_WORKERS
 import numpy as np
 import torch
 from torch.autograd import Function
 from torch.cuda.amp import custom_bwd, custom_fwd
 import tinycudann as tcnn
+from typing import Optional
 
 from common import TensorModule, BBox
 from config import NetworkConfig
@@ -30,7 +30,8 @@ class TCNerf(TensorModule):
     def __init__(
         self,
         cfg: NetworkConfig,
-        bbox: BBox
+        bbox: BBox,
+        enc_dtype: Optional[torch.dtype] = None
     ) -> None:
         super(TCNerf, self).__init__()
 
@@ -50,7 +51,9 @@ class TCNerf(TensorModule):
                 'log2_hashmap_size': pos_enc_cfg.hashmap_size,
                 'base_resolution': pos_enc_cfg.min_res,
                 'per_level_scale': per_lvl_scale
-            }
+            },
+            seed=self.cfg.network_seed,
+            dtype=enc_dtype
         )
 
         self.d_embedder = tcnn.Encoding(
@@ -58,7 +61,9 @@ class TCNerf(TensorModule):
             encoding_config={
                 'otype': 'SphericalHarmonics',
                 'degree': self.cfg.dir_enc_sh_deg
-            }
+            },
+            seed=self.cfg.network_seed,
+            dtype=enc_dtype
         )
 
         self.density_net = tcnn.Network(
@@ -70,7 +75,8 @@ class TCNerf(TensorModule):
                 'output_activation': 'None',
                 'n_neurons': self.cfg.density_hidden_dims,
                 'n_hidden_layers': self.cfg.density_hidden_layers
-            }
+            },
+            seed=self.cfg.network_seed
         )
 
         rgb_net_input_dims = self.density_net.n_output_dims + self.cfg.density_out_dims - 1
@@ -83,7 +89,8 @@ class TCNerf(TensorModule):
                 'output_activation': 'Sigmoid',
                 'n_neurons': self.cfg.rgb_hidden_dims,
                 'n_hidden_layers': self.cfg.rgb_hidden_layers
-            }
+            },
+            seed=self.cfg.network_seed
         )
 
     def save_ckpt(self, ckpt):

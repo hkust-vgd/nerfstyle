@@ -304,11 +304,11 @@ class NetworkConfig(Config):
         """Log2 base of hash table size of each level."""
 
         min_res: int
-        """Coarsest resolution value."""
+        """Resolution for coarsest level."""
 
         max_res_coeff: float
-        """Resolution coefficient. Multiply with bounding box diameter\
-            to obtain finest resolution value."""
+        """Maximum resolution coefficient. Multiply with bounding box diameter\
+            to obtain resolution for finest level."""
 
     pos_enc: HashGridConfig
     """Config settings for positional encoding."""
@@ -447,6 +447,9 @@ class TrainConfig(Config):
 
     rng_seed: int
     """Seed for NumPy / PyTorch randomized number generators."""
+
+    enable_amp: bool
+    """Enable FP16 AMP for training and testing."""
 
     sparsity_lambda: float
     """Sparsity loss multiplier."""

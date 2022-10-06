@@ -13,6 +13,7 @@ intervals:
   ckpt: 5000
   test: 5000
 rng_seed: 69420
+enable_amp: true
 sparsity_lambda: 0
 sparsity_exp_coeff: 0.05
 sparsity_samples: 50000

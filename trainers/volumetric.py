@@ -49,7 +49,8 @@ class VolumetricTrainer(Trainer):
 
         # Initialize model
         if cfg.mode == TrainMode.PRETRAIN:
-            self.model = TCNerf(self.net_cfg, self.train_set.bbox)
+            enc_dtype = None if self.train_cfg.enable_amp else torch.float32
+            self.model = TCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
         elif cfg.mode == TrainMode.FINETUNE:
             self.logger.error('Not implemented now')
         else:
@@ -58,7 +59,7 @@ class VolumetricTrainer(Trainer):
         self.model = self.model.to(self.device)
         self.logger.info('Created model ' + str(self.model))
 
-        # Initialize optimizer
+        # Initialize optimizer, LR scheduler, grad scaler
         train_keys = None
         # train_keys = ['x_layers', 'd_layers', 'x2d_layer', 'c_layer']
 
@@ -74,6 +75,8 @@ class VolumetricTrainer(Trainer):
             lr=self.train_cfg.initial_learning_rate,
             betas=(0.9, 0.999)
         )
+
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.train_cfg.enable_amp)
 
         # Load checkpoint if provided
         if cfg.ckpt_path is None:
@@ -195,9 +198,8 @@ class VolumetricTrainer(Trainer):
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.frame_str_ids[i]
             img, pose = img.to(self.device), pose.to(self.device)
-            with torch.no_grad():
-                with torch.cuda.amp.autocast(enabled=True):
-                    output = self.renderer.render(pose, training=False)
+            with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
+                output = self.renderer.render(pose, training=False)
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
@@ -210,21 +212,23 @@ class VolumetricTrainer(Trainer):
         img, pose = img.to(self.device), pose.to(self.device)
 
         self.renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
-        with torch.cuda.amp.autocast(enabled=True):
+        with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
             num_rays = self.train_cfg.num_rays_per_batch
             output = self.renderer.render(pose, img, num_rays=num_rays, training=True)
 
-        if self.train_cfg.sparsity_lambda > 0.:
-            bbox = self.train_set.bbox
-            sparsity_pts = torch.rand((self.train_cfg.sparsity_samples, 3), device=self.device)
-            sparsity_pts = sparsity_pts * bbox.size() + bbox.min_pt
-            output['sparsity'] = self.model(sparsity_pts)
+            if self.train_cfg.sparsity_lambda > 0.:
+                bbox = self.train_set.bbox
+                sparsity_pts = torch.rand((self.train_cfg.sparsity_samples, 3), device=self.device)
+                sparsity_pts = sparsity_pts * bbox.size() + bbox.min_pt
+                output['sparsity'] = self.model(sparsity_pts)
 
-        losses = self.calc_loss(output)
+            losses = self.calc_loss(output)
+
         self.optim.zero_grad()
-        back_key = 'total' if 'total' in losses.keys() else 'mse'
-        losses[back_key].value.backward()
-        self.optim.step()
+        back_loss = losses['total' if 'total' in losses.keys() else 'mse'].value
+        self.scaler.scale(back_loss).backward()
+        self.scaler.step(self.optim)
+        self.scaler.update()
 
         # Update counter after backprop
         self.iter_ctr += 1
