@@ -57,9 +57,9 @@ class VolumetricTrainer(Trainer):
             self.logger.error('Wrong training mode: {}'.format(cfg.mode.name))
 
         self.model = self.model.to(self.device)
-        self.logger.info('Created model ' + str(self.model))
+        self.logger.info('Created model ' + str(type(self.model)))
 
-        # Initialize optimizer, LR scheduler, grad scaler
+        # Initialize optimizer and miscellaneous components
         train_keys = None
         # train_keys = ['x_layers', 'd_layers', 'x2d_layer', 'c_layer']
 
@@ -76,7 +76,13 @@ class VolumetricTrainer(Trainer):
             betas=(0.9, 0.999)
         )
 
+        def lr_lambda(_): return 1.
+        if self.train_cfg.learning_rate_decay > 0:
+            def lr_lambda(iter: int): return 0.1 ** (iter / self.train_cfg.learning_rate_decay)
+
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optim, lr_lambda)
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.train_cfg.enable_amp)
+        self.ema = utils.EMA(train_params, decay=self.train_cfg.ema_decay)
 
         # Load checkpoint if provided
         if cfg.ckpt_path is None:
@@ -199,7 +205,8 @@ class VolumetricTrainer(Trainer):
             frame_id = self.test_set.frame_str_ids[i]
             img, pose = img.to(self.device), pose.to(self.device)
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
-                output = self.renderer.render(pose, training=False)
+                with self.ema.average_parameters():
+                    output = self.renderer.render(pose, training=False)
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
@@ -225,26 +232,19 @@ class VolumetricTrainer(Trainer):
             losses = self.calc_loss(output)
 
         self.optim.zero_grad()
+
         back_loss = losses['total' if 'total' in losses.keys() else 'mse'].value
         self.scaler.scale(back_loss).backward()
         self.scaler.step(self.optim)
+        old_scale = self.scaler.get_scale()
         self.scaler.update()
+        if old_scale <= self.scaler.get_scale():
+            self.scheduler.step()
+        self.ema.update()
 
         # Update counter after backprop
         self.iter_ctr += 1
         self.time1 = time.time()
-
-        # TODO: Use torch.optim.lr_scheduler.LambdaLR
-        lr = self.train_cfg.initial_learning_rate
-        decay = self.train_cfg.learning_rate_decay
-        if decay < 0:
-            decay = self.train_cfg.num_iterations
-
-        if decay != 0:
-            lr = self.train_cfg.initial_learning_rate * \
-                (0.1 ** (self.iter_ctr / decay))
-            for param_group in self.optim.param_groups:
-                param_group['lr'] = lr
 
         # Misc. tasks at different intervals
         if self.check_interval(self.train_cfg.intervals.print):
@@ -252,7 +252,7 @@ class VolumetricTrainer(Trainer):
         if self.check_interval(self.train_cfg.intervals.test):
             self.test_networks()
         if self.check_interval(self.train_cfg.intervals.log):
-            self.log_status(losses, lr)
+            self.log_status(losses, self.scheduler.get_last_lr()[0])
         if self.check_interval(self.train_cfg.intervals.ckpt, final=True):
             self.save_ckpt()
 

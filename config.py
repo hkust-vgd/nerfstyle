@@ -395,61 +395,14 @@ class TrainConfig(Config):
     intervals: TrainIntervalConfig
     """Intervals to be used during training."""
 
-    @dataclass
-    class DistillConfig:
-        alpha_dist: float
-        """Alpha distance."""
-
-        converge_thres: float
-        """Retrain sub-network if quantile loss is not smaller than this threshold."""
-
-        init_data_bsize: int
-        """Batch size of points when initializing dataset, at the beginning of training each new
-           batch of nodes."""
-
-        max_retries: int
-        """Retrain a network for at most this no. of times to prevent infinite loop."""
-
-        nets_bsize: int
-        """No. of subnetworks to simultaneously train during one round of training."""
-
-        occ_pt_ratio: float
-        """For each subnetwork, keep generating points until there are at least this percentage of
-           points that falls in occupied space."""
-
-        occ_pt_max_iters: int
-        """Maximum iterations for the above point generation scheme. Set to 0 to disable
-           regenerating points."""
-
-        quantile: float
-        """Quantile to use during metric evaluation."""
-
-        retrain: Optional[Path]
-        """List of nodes to retrain for distillation stage."""
-
-        sparsity_check: float
-        """Nodes with an occupied volume less than this percentage will be treated as empty, i.e.
-           no subnetwork will be trained. Used in conjunction with an occupancy map only."""
-
-        test_bsize: int
-        """Batch size of points when evaluating all subnetworks."""
-
-        test_samples_pnet: int
-        """No. of points for evaluating each subnetwork."""
-
-        train_bsize: int
-        """Batch size of points when training all subnetworks."""
-
-        train_samples_pnet: int
-        """No. of points for training each subnetwork."""
-
-    distill: Optional[DistillConfig]
-
     rng_seed: int
     """Seed for NumPy / PyTorch randomized number generators."""
 
     enable_amp: bool
     """Enable FP16 AMP for training and testing."""
+
+    ema_decay: Optional[float]
+    """EMA decay rate. Leave blank if not using EMA."""
 
     sparsity_lambda: float
     """Sparsity loss multiplier."""

@@ -1,12 +1,14 @@
 from collections import defaultdict
 import functools
+from inspect import ismethod
+import inspect
 import logging
 from pathlib import Path
 import sys
 from tabulate import tabulate
 from time import time
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, Optional, Tuple, Union
 
 import einops
 import matplotlib.colors as mcolors
@@ -14,6 +16,7 @@ import numpy as np
 from PIL import Image
 import torch
 import torch.nn.functional as F
+from torch_ema import ExponentialMovingAverage
 from tqdm import tqdm
 
 
@@ -313,6 +316,35 @@ class Clock:
 
 
 global_clock = Clock()
+
+
+class EMA(ExponentialMovingAverage):
+    """Extended EMA class with enable/disable parameter.
+    When enabled, EMA works as usual; when disabled, calls to EMA methods are ignored.
+    Initally, EMA is disabled if `decay` is `None`, else enabled.
+    This can be modified afterwards via setting `self.enabled`.
+    """
+    def __init__(
+        self,
+        parameters: Iterable[torch.nn.Parameter],
+        decay: Optional[float]
+    ):
+        self.enabled = (decay is not None)
+        if decay is None:
+            decay = 1.
+
+        super(EMA, self).__init__(parameters, decay)
+
+        def wrap(fn):
+            def new_fn(*args, **kwargs):
+                return fn(*args, **kwargs) if self.enabled else lambda _: None
+            return new_fn
+
+        ema_methods = [m for m in dir(ExponentialMovingAverage) if not m.startswith('__')]
+        for m in ema_methods:
+            old_fn = getattr(self, m)
+            if callable(old_fn):
+                setattr(self, m, wrap(old_fn))
 
 
 class ExitHandler(logging.StreamHandler):
