@@ -1,7 +1,5 @@
 from collections import defaultdict
 import functools
-from inspect import ismethod
-import inspect
 import logging
 from pathlib import Path
 import sys
@@ -11,6 +9,7 @@ import traceback
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple, Union
 
 import einops
+import git
 import matplotlib.colors as mcolors
 import numpy as np
 from PIL import Image
@@ -157,6 +156,12 @@ def format_bytes(
         return '{:.{prec}f} GB'.format(bytes_count / (2 ** 30), prec=prec)
     else:
         raise ValueError('Unrecognized unit ' + unit)
+
+
+def get_git_sha() -> str:
+    repo = git.Repo(search_parent_directories=True)
+    sha = repo.head.object.hexsha
+    return sha
 
 
 def get_random_pts(n, min_pt, max_pt):

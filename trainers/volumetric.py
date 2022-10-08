@@ -1,10 +1,10 @@
 from argparse import Namespace
 from functools import partial
+import pickle
 import time
 from typing import Dict, List
 
 import einops
-import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -15,6 +15,7 @@ from common import LossValue, TrainMode
 from config import BaseConfig
 from data import get_dataset
 from loss import FeatureExtractor, MattingLaplacian, StyleLoss
+from nerf_lib import nerf_lib
 from networks.tcnn_nerf import TCNerf
 from renderer import Renderer
 from trainers.base import Trainer
@@ -22,6 +23,11 @@ import utils
 
 
 class VolumetricTrainer(Trainer):
+    SAVE_KEYS = [
+        'version', 'name', 'model', 'renderer',
+        'dataset_cfg', 'train_cfg'
+    ]
+
     def __init__(
         self,
         cfg: BaseConfig,
@@ -60,15 +66,14 @@ class VolumetricTrainer(Trainer):
         self.logger.info('Created model ' + str(type(self.model)))
 
         # Initialize optimizer and miscellaneous components
-        train_keys = None
-        # train_keys = ['x_layers', 'd_layers', 'x2d_layer', 'c_layer']
+        # train_keys = None
+        # def trainable(key: str) -> bool:
+        #     if train_keys is None:
+        #         return True
+        #     return any([(k in key) for k in train_keys])
 
-        def trainable(key: str) -> bool:
-            if train_keys is None:
-                return True
-            return any([(k in key) for k in train_keys])
-
-        train_params = [p for n, p in self.model.named_parameters() if trainable(n)]
+        # train_params = [p for n, p in self.model.named_parameters() if trainable(n)]
+        train_params = list(self.model.parameters())
 
         self.optim = torch.optim.Adam(
             params=train_params,
@@ -84,20 +89,68 @@ class VolumetricTrainer(Trainer):
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.train_cfg.enable_amp)
         self.ema = utils.EMA(train_params, decay=self.train_cfg.ema_decay)
 
-        # Load checkpoint if provided
-        if cfg.ckpt_path is None:
-            self.logger.info('Training model from scratch')
-        else:
-            self.load_ckpt(cfg.ckpt_path)
-            if cfg.occ_map is not None:
-                self.model.load_occ_map(cfg.occ_map)
-
         # Initialize renderer
         self.renderer = Renderer(
             self.model, self.render_cfg, self.train_set.intrinsics, self.dataset_cfg.bound,
             bg_color=self.dataset_cfg.bg_color,
             precrop_frac=self.train_cfg.precrop_fraction
         )
+
+    def __getstate__(self):
+        state_dict = {k: v for k, v in self.__dict__.items() if k in self.SAVE_KEYS}
+
+        # TODO: list of items using state_dict
+        state_dict['ema'] = self.ema.state_dict()
+
+        return state_dict
+
+    def __setstate__(self, state_dict: Dict):
+        self.logger = utils.create_logger(state_dict['name'])
+
+        # Version check
+        cur_ver = utils.get_git_sha()
+        pkl_ver = state_dict['version']
+        if cur_ver != pkl_ver:
+            self.logger.warn(
+                'Checkpoint version "{}" differs from current repo version "{}". '
+                'Errors may occur during loading.'.format(pkl_ver[:7], cur_ver[:7])
+            )
+
+        for k in self.SAVE_KEYS:
+            if k not in state_dict.keys():
+                self.logger.error('Key "{}" not found in checkpoint'.format(k))
+            setattr(self, k, state_dict[k])
+
+        # TODO: recover training components / RNG states
+
+        # TODO: infer params from saved optimizer
+        self.ema = utils.EMA(self.model.parameters(), self.train_cfg.ema_decay)
+        self.ema.load_state_dict(state_dict['ema'])
+
+    @classmethod
+    def load_ckpt(
+        cls,
+        ckpt_path: str
+    ) -> 'VolumetricTrainer':
+        with open(ckpt_path, 'rb') as f:
+            trainer: VolumetricTrainer = pickle.load(f)
+
+        trainer.device = torch.device('cuda:0')  # hard code for now
+        trainer.model.to(trainer.device)
+        trainer.renderer.to(trainer.device)
+        trainer.logger.info('Loaded checkpoint \"{}\"'.format(ckpt_path))
+
+        return trainer
+
+    def save_ckpt(self) -> None:
+        ckpt_fn = 'iter_{:0{width}d}.pkl'.format(
+            self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
+        ckpt_path = self.log_dir / ckpt_fn
+
+        with open(ckpt_path, 'wb') as f:
+            pickle.dump(self, f)
+
+        self.logger.info('Saved checkpoint at {}'.format(ckpt_path))
 
     def calc_loss(
         self,
@@ -153,47 +206,6 @@ class VolumetricTrainer(Trainer):
 
         self.writer.add_scalar('misc/iter_time', self.time1 - self.time0, self.iter_ctr)
         self.writer.add_scalar('misc/cur_lr', cur_lr, self.iter_ctr)
-
-    def load_ckpt(self, ckpt_path):
-        @utils.loader(self.logger)
-        def _load(ckpt_path):
-            ckpt = torch.load(ckpt_path)
-            if 'model' not in ckpt.keys():
-                self.model.load_nodes(ckpt['trained'])
-                self.logger.info('Loaded distill checkpoint \"{}\"'.format(ckpt_path))
-                return
-
-            self.iter_ctr = ckpt['iter']
-            self.model.load_ckpt(ckpt)
-            self.optim.load_state_dict(ckpt['optim'])
-
-            rng_states = ckpt['rng_states']
-            np.random.set_state(rng_states['np'])
-            torch.set_rng_state(rng_states['torch'])
-            torch.cuda.set_rng_state(rng_states['torch_cuda'])
-
-        _load(ckpt_path)
-        self.logger.info('Loaded checkpoint \"{}\"'.format(ckpt_path))
-        self.logger.info('Model now at iteration #{:d}'.format(self.iter_ctr))
-
-    def save_ckpt(self):
-        ckpt_dict = {
-            'iter': self.iter_ctr,
-            'optim': self.optim.state_dict(),
-            'rng_states': {
-                'np': np.random.get_state(),
-                'torch': torch.get_rng_state(),
-                'torch_cuda': torch.cuda.get_rng_state()
-            }
-        }
-        ckpt_dict = self.model.save_ckpt(ckpt_dict)
-
-        ckpt_fn = 'iter_{:0{width}d}.pth'.format(
-            self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
-        ckpt_path = self.log_dir / ckpt_fn
-
-        torch.save(ckpt_dict, ckpt_path)
-        self.logger.info('Saved checkpoint at {}'.format(ckpt_path))
 
     @torch.no_grad()
     def test_networks(self):

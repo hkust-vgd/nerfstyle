@@ -31,7 +31,13 @@ def get_trainer(
         class_name = 'VolumetricTrainer' if cfg.style_image is None else 'StyleTrainer'
 
     module = importlib.import_module(module_name)
-    module_ctor = getattr(module, class_name)
-    trainer = module_ctor(cfg, nargs)
+    module_ctor: Trainer = getattr(module, class_name)
+
+    if cfg.ckpt_path is None:
+        # train from scratch, initalize new trainer
+        trainer = module_ctor(cfg, nargs)
+    else:
+        # unpickle trianer from checkpoint
+        trainer = module_ctor.load_ckpt(cfg.ckpt_path)
 
     return trainer

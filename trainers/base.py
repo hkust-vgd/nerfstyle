@@ -25,6 +25,7 @@ class Trainer(ABC):
         self.time1 = 0
 
         self.name = cfg.name
+        self.version = utils.get_git_sha()
         self.log_dir: Path = Path(cfg.run_dir) / self.name
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -55,11 +56,7 @@ class Trainer(ABC):
             self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 
         self.device = torch.device('cuda:0')
-
         nerf_lib.device = self.device
-        nerf_lib.load_cuda_ext()
-        nerf_lib.init_stream_pool(16)
-        nerf_lib.init_magma()
 
         self.writer = None
         if self.train_cfg.intervals.log > 0:
@@ -85,6 +82,15 @@ class Trainer(ABC):
         out_fn(log_str)
 
     @abstractmethod
+    def save_ckpt(self):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def load_ckpt(cls, ckpt_path):
+        pass
+
+    @abstractmethod
     def run_iter(self):
         pass
 
@@ -93,6 +99,4 @@ class Trainer(ABC):
             self.run_iter()
 
     def close(self):
-        nerf_lib.destroy_stream_pool()
-        nerf_lib.deinit_multimatmul_aux_data()
         self.logger.info('Closed')

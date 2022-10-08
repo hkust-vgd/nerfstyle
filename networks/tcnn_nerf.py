@@ -93,10 +93,6 @@ class TCNerf(TensorModule):
             seed=self.cfg.network_seed
         )
 
-    def save_ckpt(self, ckpt):
-        ckpt['model'] = self.state_dict()
-        return ckpt
-
     def forward(self, pts, dirs=None):
         pts = self.bounds_bbox.normalize(pts)
         x_embedded = self.x_embedder(pts)

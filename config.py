@@ -3,7 +3,7 @@ import dataclasses
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 from dacite import from_dict
 from dacite import Config as DaciteConfig
@@ -16,7 +16,7 @@ from utils import create_logger
 
 
 logger = create_logger(__name__)
-T = TypeVar('T')
+T = TypeVar('T', bound='Config')
 
 
 def flatten(
@@ -84,7 +84,7 @@ class Config:
 
     @classmethod
     def _get_cfg(
-        cls: T,
+        cls: Type[T],
         cfg_dict: Dict
     ) -> 'Config':
         obj = None
@@ -101,7 +101,7 @@ class Config:
 
     @classmethod
     def read_nargs(
-        cls: T
+        cls: Type[T]
     ) -> Tuple[T, List[str]]:
         parser = cls.create_parser()
         args, nargs = parser.parse_known_args()
@@ -111,7 +111,7 @@ class Config:
 
     @classmethod
     def load_nargs(
-        cls: T,
+        cls: Type[T],
         config_path: Optional[Path] = None,
         nargs: List[str] = ()
     ) -> Tuple[T, List[str]]:
@@ -141,7 +141,7 @@ class Config:
 
     @classmethod
     def load(
-        cls: T,
+        cls: Type[T],
         config_path: Optional[Path] = None
     ) -> T:
         obj, _ = cls.load_nargs(config_path)
@@ -149,7 +149,7 @@ class Config:
 
     @classmethod
     def create_parser(
-        cls,
+        cls: Type[T],
         loaded_values: Optional[Dict[str, Any]] = None
     ) -> ArgumentParser:
         def _argnames(k: str):
