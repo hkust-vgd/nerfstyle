@@ -1,4 +1,5 @@
 from argparse import Namespace
+from copy import copy
 from functools import partial
 import pickle
 import time
@@ -191,10 +192,11 @@ class VolumetricTrainer(Trainer):
 
     def print_status(
         self,
-        losses: Dict[str, LossValue]
+        losses: Dict[str, LossValue],
+        **kwargs
     ) -> None:
         status_dict = {lv.print_name: '{:.5f}'.format(lv.value.item()) for lv in losses.values()}
-        super().print_status(status_dict)
+        super().print_status(status_dict, **kwargs)
 
     def log_status(
         self,
@@ -213,17 +215,26 @@ class VolumetricTrainer(Trainer):
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         img_dir.mkdir()
 
+        eval_losses: List[Dict[str, LossValue]] = []
+
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.frame_str_ids[i]
             img, pose = img.to(self.device), pose.to(self.device)
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
                 with self.ema.average_parameters():
-                    output = self.renderer.render(pose, training=False)
+                    output = self.renderer.render(pose, img, training=False)
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
             save_path = img_dir / 'frame_{}.png'.format(frame_id)
             torchvision.utils.save_image(rgb_output, save_path)
+
+            eval_losses.append(self.calc_loss(output))
+
+        avg_loss = copy(eval_losses[0])
+        avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
+        avg_loss['psnr'].value = utils.compute_psnr(avg_loss['mse'].value)
+        self.print_status(avg_loss, phase='TEST')
 
     def run_iter(self):
         self.time0 = time.time()

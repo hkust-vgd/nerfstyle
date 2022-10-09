@@ -119,7 +119,8 @@ class NerfLib:
         if bsize is None:
             rays_d = rays_d.reshape((-1, 3))
             if img is not None:
-                img = F.interpolate(img.unsqueeze(0), size=(fh, fw)).squeeze(0)
+                if fh != img.shape[-2] or fw != img.shape[-1]:
+                    img = F.interpolate(img.unsqueeze(0), size=(fh, fw)).squeeze(0)
                 target = einops.rearrange(img, 'c h w -> (h w) c')
         else:
             indices_1d = np.random.choice(np.arange(w * h), bsize, replace=False)

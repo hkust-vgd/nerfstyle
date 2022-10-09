@@ -19,6 +19,140 @@ from torch_ema import ExponentialMovingAverage
 from tqdm import tqdm
 
 
+class Clock:
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.prev = None
+        self.reset()
+        self.record = defaultdict(list)
+        self.cur_record = defaultdict(list)
+        self.stats = {
+            'Min': np.min,
+            'Max': np.max,
+            'Avg': np.mean
+        }
+
+    def reset(self):
+        self.prev = time()
+
+    def aggregate(self):
+        for k, v in self.cur_record.items():
+            self.record[k].append(np.sum(v))
+        self.cur_record.clear()
+
+    def click(self, msg, reset=True, click_verbose=False):
+        delta = time() - self.prev
+        if reset:
+            self.reset()
+
+        self.cur_record[msg].append(delta)
+        if self.verbose or click_verbose:
+            print('Event "{}": {:.3f}s'.format(msg, delta))
+
+    def print_stats(self):
+        self.aggregate()
+
+        stats_table = []
+        for k in self.record.keys():
+            stats_row = [k]
+            for stat_fn in self.stats.values():
+                stat = stat_fn(self.record[k])
+                stats_row.append('{:.5f} s'.format(stat))
+            stats_table.append(stats_row)
+
+        headers = ['Event'] + list(self.stats.keys())
+        stats_table = tabulate(stats_table, headers=headers)
+        print(stats_table)
+
+
+global_clock = Clock()
+
+
+class CustomFormatter(logging.Formatter):
+    yellow = "\x1b[33;20m"
+    red = "\x1b[31;20m"
+    reset = "\x1b[0m"
+    format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+    FORMATS = {
+        logging.DEBUG: format,
+        logging.INFO: format,
+        logging.WARNING: yellow + format + reset,
+        logging.ERROR: red + format + reset,
+        logging.CRITICAL: red + format + reset
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+
+class EMA(ExponentialMovingAverage):
+    """Extended EMA class with enable/disable parameter.
+    When enabled, EMA works as usual; when disabled, calls to EMA methods are ignored.
+    Initally, EMA is disabled if `decay` is `None`, else enabled.
+    This can be modified afterwards via setting `self.enabled`.
+    """
+    def __init__(
+        self,
+        parameters: Iterable[torch.nn.Parameter],
+        decay: Optional[float]
+    ):
+        self.enabled = (decay is not None)
+        if decay is None:
+            decay = 1.
+
+        super(EMA, self).__init__(parameters, decay)
+
+        def wrap(fn):
+            def new_fn(*args, **kwargs):
+                return fn(*args, **kwargs) if self.enabled else lambda _: None
+            return new_fn
+
+        ema_methods = [m for m in dir(ExponentialMovingAverage) if not m.startswith('__')]
+        for m in ema_methods:
+            old_fn = getattr(self, m)
+            if callable(old_fn):
+                setattr(self, m, wrap(old_fn))
+
+
+class ExitHandler(logging.StreamHandler):
+    def __init__(self, stream=None):
+        super(ExitHandler, self).__init__(stream)
+
+    def emit(self, record):
+        super(ExitHandler, self).emit(record)
+        if record.levelno >= logging.ERROR:
+            sys.exit(1)
+
+
+class RNGContextManager:
+    """Reusable context manager that switches to a separately managed
+    PyTorch RNG during the block it is wrapped with.
+    """
+    def __init__(self, seed: int) -> None:
+        """ Initializes the RNG with seed.
+
+        Args:
+            seed (Optional[int]): Initializing seed.
+        """
+        self.seed = seed
+        self.rng_state = None
+        self.cached_state = None
+
+    def __enter__(self) -> None:
+        self.cached_state = torch.random.get_rng_state()
+        if self.rng_state is not None:
+            torch.random.set_rng_state(self.rng_state)
+        else:
+            torch.random.manual_seed(self.seed)
+
+    def __exit__(self, *_) -> None:
+        self.rng_state = torch.random.get_rng_state()
+        torch.random.set_rng_state(self.cached_state)
+
+
 def batch_exec(
     func: Callable,
     *dest: Any,
@@ -124,8 +258,7 @@ def create_logger(name, level='info'):
     logger = logging.getLogger(name)
     logger.setLevel(level.upper())
     handler = ExitHandler(sys.stdout)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
+    handler.setFormatter(CustomFormatter())
     logger.addHandler(handler)
     return logger
 
@@ -272,117 +405,3 @@ def rmtree(path: Path):
 def to_device(old_dict: Dict[str, torch.Tensor], device: str):
     new_dict = {k: v.to(device) for k, v in old_dict.items()}
     return new_dict
-
-
-class Clock:
-    def __init__(self, verbose=False):
-        self.verbose = verbose
-        self.prev = None
-        self.reset()
-        self.record = defaultdict(list)
-        self.cur_record = defaultdict(list)
-        self.stats = {
-            'Min': np.min,
-            'Max': np.max,
-            'Avg': np.mean
-        }
-
-    def reset(self):
-        self.prev = time()
-
-    def aggregate(self):
-        for k, v in self.cur_record.items():
-            self.record[k].append(np.sum(v))
-        self.cur_record.clear()
-
-    def click(self, msg, reset=True, click_verbose=False):
-        delta = time() - self.prev
-        if reset:
-            self.reset()
-
-        self.cur_record[msg].append(delta)
-        if self.verbose or click_verbose:
-            print('Event "{}": {:.3f}s'.format(msg, delta))
-
-    def print_stats(self):
-        self.aggregate()
-
-        stats_table = []
-        for k in self.record.keys():
-            stats_row = [k]
-            for stat_fn in self.stats.values():
-                stat = stat_fn(self.record[k])
-                stats_row.append('{:.5f} s'.format(stat))
-            stats_table.append(stats_row)
-
-        headers = ['Event'] + list(self.stats.keys())
-        stats_table = tabulate(stats_table, headers=headers)
-        print(stats_table)
-
-
-global_clock = Clock()
-
-
-class EMA(ExponentialMovingAverage):
-    """Extended EMA class with enable/disable parameter.
-    When enabled, EMA works as usual; when disabled, calls to EMA methods are ignored.
-    Initally, EMA is disabled if `decay` is `None`, else enabled.
-    This can be modified afterwards via setting `self.enabled`.
-    """
-    def __init__(
-        self,
-        parameters: Iterable[torch.nn.Parameter],
-        decay: Optional[float]
-    ):
-        self.enabled = (decay is not None)
-        if decay is None:
-            decay = 1.
-
-        super(EMA, self).__init__(parameters, decay)
-
-        def wrap(fn):
-            def new_fn(*args, **kwargs):
-                return fn(*args, **kwargs) if self.enabled else lambda _: None
-            return new_fn
-
-        ema_methods = [m for m in dir(ExponentialMovingAverage) if not m.startswith('__')]
-        for m in ema_methods:
-            old_fn = getattr(self, m)
-            if callable(old_fn):
-                setattr(self, m, wrap(old_fn))
-
-
-class ExitHandler(logging.StreamHandler):
-    def __init__(self, stream=None):
-        super(ExitHandler, self).__init__(stream)
-
-    def emit(self, record):
-        super(ExitHandler, self).emit(record)
-        if record.levelno >= logging.ERROR:
-            sys.exit(1)
-
-
-class RNGContextManager:
-    """Reusable context manager that switches to a separately managed
-    PyTorch RNG during the block it is wrapped with.
-    """
-    def __init__(self, seed: int) -> None:
-        """ Initializes the RNG with seed.
-
-        Args:
-            seed (Optional[int]): Initializing seed.
-        """
-        self.seed = seed
-        self.rng_state = None
-        self.cached_state = None
-
-    def __enter__(self) -> None:
-        self.cached_state = torch.random.get_rng_state()
-        if self.rng_state is not None:
-            torch.random.set_rng_state(self.rng_state)
-        else:
-            torch.random.manual_seed(self.seed)
-
-    def __exit__(self, *_) -> None:
-        self.rng_state = torch.random.get_rng_state()
-        torch.random.set_rng_state(self.cached_state)

@@ -42,6 +42,8 @@ def main():
     if args.name is None:
         # default experiment name
         args.name = ckpt_trainer.name + '_' + Path(args.ckpt_path).stem
+        if args.out_dims is not None:
+            args.name += '_{:d}x{:d}'.format(*args.out_dims)
     out_dir: Path = Path(args.out_dir) / args.name
     logger.info('Writing to directory "{}"'.format(out_dir))
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -59,14 +61,12 @@ def main():
     test_loader = DataLoader(test_set, batch_size=None, shuffle=False)
     logger.info('Loaded ' + str(test_set))
 
+    # Modify camera parameters if needed
     if args.out_dims is None:
-        intr = test_set.intrinsics
-        W, H = intr.w, intr.h
+        W, H = renderer.intr.w, renderer.intr.h
     else:
         W, H = args.out_dims
-        intr = test_set.intrinsics.scale(W, H)
-
-    # TODO: modify renderer intrinsics
+        renderer.intr = renderer.intr.scale(W, H)
 
     @torch.no_grad()
     def render():
