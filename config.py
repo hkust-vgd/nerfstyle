@@ -11,7 +11,6 @@ from dacite.exceptions import UnexpectedDataError
 from simple_parsing.docstring import get_attribute_docstring
 import yaml
 
-from common import TrainMode
 from utils import create_logger
 
 
@@ -78,7 +77,6 @@ class Config:
 
     types_cfg = DaciteConfig(strict=True, type_hooks={
         Path: lambda p: Path(p).expanduser(),
-        TrainMode: lambda m: TrainMode[m.upper()],
         tuple: tuple
     })
 
@@ -219,17 +217,8 @@ class BaseConfig(Config):
     run_dir: Path = './runs'
     """Root path of log folder. Logs will be stored at <run_dir>/<name>."""
 
-    mode: TrainMode = TrainMode.PRETRAIN
-    """Training mode."""
-
     ckpt_path: Optional[Path] = None
     """Path of checkpoint to load from."""
-
-    teacher_ckpt_path: Optional[Path] = None
-    """Path of teacher checkpoint used to training the distillation stage."""
-
-    occ_map: Optional[Path] = None
-    """Path of occupancy map, used for speeding up inference."""
 
     style_image: Optional[Path] = None
     """If provided, model will perform style transfer on this image."""

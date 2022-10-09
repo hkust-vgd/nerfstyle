@@ -1,7 +1,5 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from enum import Enum
-from locale import normalize
 from typing import Optional, TypeVar, Union
 
 import numpy as np
@@ -13,12 +11,6 @@ import utils
 
 T = TypeVar('T')
 patch_typeguard()
-
-
-class TrainMode(Enum):
-    PRETRAIN = 0
-    DISTILL = 1
-    FINETUNE = 2
 
 
 @dataclass(frozen=True)

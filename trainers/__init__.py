@@ -1,7 +1,6 @@
 import importlib
 from typing import List
 
-from common import TrainMode
 from config import BaseConfig
 from trainers.base import Trainer
 
@@ -23,12 +22,12 @@ def get_trainer(
     Returns:
         Trainer: Trainer object.
     """
-    if cfg.mode is TrainMode.DISTILL:
-        module_name = 'trainers.distill'
-        class_name = 'DistillTrainer'
+    if cfg.style_image is None:
+        module_name = 'trainers.base'
+        class_name = 'Trainer'
     else:
-        module_name = 'trainers.volumetric'
-        class_name = 'VolumetricTrainer' if cfg.style_image is None else 'StyleTrainer'
+        module_name = 'trainers.style'
+        class_name = 'StyleTrainer'
 
     module = importlib.import_module(module_name)
     module_ctor: Trainer = getattr(module, class_name)
