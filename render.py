@@ -9,10 +9,9 @@ from torch.utils.data import DataLoader
 import torchvision
 from tqdm import tqdm
 
-from config import DatasetConfig
 from data import get_dataset
 from nerf_lib import nerf_lib
-from trainers.volumetric import VolumetricTrainer
+from trainers.base import Trainer
 import utils
 
 
@@ -34,7 +33,7 @@ def main():
     nerf_lib.device = device
 
     # Load renderer (with model)
-    ckpt_trainer = VolumetricTrainer.load_ckpt(args.ckpt_path)
+    ckpt_trainer = Trainer.load_ckpt(args.ckpt_path)
     renderer = ckpt_trainer.renderer
     ema = ckpt_trainer.ema
 
