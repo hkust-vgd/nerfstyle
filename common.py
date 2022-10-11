@@ -35,6 +35,11 @@ class Intrinsics:
     cy: float
     """Camera center offset in Y-axis."""
 
+    def __post_init__(self):
+        # Enforce integer types
+        object.__setattr__(self, 'h', int(self.h))
+        object.__setattr__(self, 'w', int(self.w))
+
     def scale(self, w: int, h: int) -> Intrinsics:
         """
         Rescales intrinsic matrix to new dimensions. If aspect ratio is different, focal
@@ -74,28 +79,34 @@ class LossValue:
 
 @dataclass
 class RayBatch:
-    """A batch of N rays sharing a common origin point."""
+    """A batch of N rays."""
 
-    origin: Tensor
-    """(3,) array. Origin of ray batch."""
+    origins: Tensor
+    """(N, 3) array. Origins of ray batch."""
 
-    dests: Tensor
-    """(N, 3) array. Direction vectors of rays relative to origin."""
+    dirs: Tensor
+    """(N, 3) array. Direction vectors of rays relative to origins."""
 
     def __post_init__(self):
         # Normalize the rays to unit vectors
-        assert len(self.dests.shape) == 2
-        self.dests = self.dests / torch.norm(self.dests, dim=-1, keepdim=True)
+        assert len(self.origins.shape) <= 2
+        assert len(self.dirs.shape) == 2
+        if len(self.origins.shape) == 1:
+            self.origins = torch.tile(self.origins, (len(self.dirs), 1))
+        assert self.origins.shape == self.dirs.shape
+
+        self.dirs = self.dirs / torch.norm(self.dirs, dim=-1, keepdim=True)
 
     def __len__(self):
-        return len(self.dests)
+        return len(self.dirs)
 
     def viewdirs(self):
-        norms = torch.norm(self.dests, dim=-1, keepdim=True)
-        return self.dests / norms
+        norms = torch.norm(self.dirs, dim=-1, keepdim=True)
+        return self.dirs / norms
 
     def lerp(self, coeffs):
-        """Interpolate ray batch.
+        """
+        Interpolate ray batch.
 
         Args:
             coeffs (Tensor[N, K]): Array of K coefficients for each ray.
@@ -104,8 +115,39 @@ class RayBatch:
             Tensor[N, K, 3]: Array of points at interpolated positions for each ray.
         """
         assert len(coeffs) == len(self)
-        out = torch.einsum('nc, nk -> nkc', self.dests, coeffs) + self.origin
+        out = torch.einsum('nc, nk -> nkc', self.dirs, coeffs) + self.origins
         return out
+
+    def warp_ndc(self, near: int, intr: Intrinsics) -> RayBatch:
+        """
+        Warp rays to NDC coordinates.
+
+        Args:
+            near (int): location of near plane.
+            intr (Intrinsics): intrinsic parameters describing the NDC view frustum.
+        """
+        t = -(near + self.origins[:, 2]) / self.dirs[:, 2]
+        ndc_origins = self.origins + t[..., None] * self.dirs
+
+        w_tmp = -1. / (intr.w / (2. * intr.fx))
+        h_tmp = -1. / (intr.h / (2. * intr.fy))
+
+        new_origins = [
+            w_tmp * ndc_origins[:, 0] / ndc_origins[:, 2],
+            h_tmp * ndc_origins[:, 1] / ndc_origins[:, 2],
+            1. + 2. * near / ndc_origins[:, 2]
+        ]
+        new_dirs = [
+            w_tmp * (self.dirs[:, 0] / self.dirs[:, 2] - ndc_origins[:, 0] / ndc_origins[:, 2]),
+            h_tmp * (self.dirs[:, 1] / self.dirs[:, 2] - ndc_origins[:, 1] / ndc_origins[:, 2]),
+            -2. * near / ndc_origins[:, 2]
+        ]
+
+        ndc_rays = RayBatch(
+            torch.stack(new_origins, dim=-1),
+            torch.stack(new_dirs, dim=-1)
+        )
+        return ndc_rays
 
 
 class TensorModule(torch.nn.Module):

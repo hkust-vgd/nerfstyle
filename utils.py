@@ -6,7 +6,7 @@ import sys
 from tabulate import tabulate
 from time import time
 import traceback
-from typing import Any, Callable, Dict, Iterable, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import einops
 import git
@@ -405,3 +405,46 @@ def rmtree(path: Path):
 def to_device(old_dict: Dict[str, torch.Tensor], device: str):
     new_dict = {k: v.to(device) for k, v in old_dict.items()}
     return new_dict
+
+
+def train_test_split(items: List[Any], split_every: int, is_train: bool) -> List[Any]:
+    train_ids, test_ids = [], []
+    for i, obj in enumerate(items):
+        if i % split_every == 0:
+            test_ids.append(obj)
+        else:
+            train_ids.append(obj)
+
+    return train_ids if is_train else test_ids
+
+
+# TODO: type check ndarray sizes
+
+def full_mtx(mtx: np.ndarray):
+    assert mtx.shape[-1] == 4 and mtx.shape[-2] <= 4, 'Wrong input shape'
+    rows = mtx.shape[-2]
+    if rows == 4:  # already full
+        return mtx
+
+    base = np.tile(np.eye(4), mtx.shape[:-2] + (1, 1))
+    base[..., :rows, :] = mtx[..., :, :]
+    return base.astype(mtx.dtype)
+
+
+def normalize(vec: np.ndarray) -> np.ndarray:
+    return vec / np.linalg.norm(vec)
+
+
+def build_view_mtx(pos: np.ndarray, up: np.ndarray, vec2: np.ndarray) -> np.ndarray:
+    up, vec2 = normalize(up), normalize(vec2)
+    vec0 = normalize(np.cross(up, vec2))
+    vec1 = normalize(np.cross(vec2, vec0))
+    mtx = np.stack([vec0, vec1, vec2, pos], axis=1)
+    return mtx
+
+
+def poses_avg(poses: np.ndarray) -> np.ndarray:
+    up = np.sum(poses[:, :3, 1], axis=0)
+    vec2 = np.sum(poses[:, :3, 2], axis=0)
+    pos = np.mean(poses[:, :3, 3], axis=0)
+    return build_view_mtx(pos, up, vec2)

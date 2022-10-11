@@ -7,3 +7,5 @@ __pycache__
 *.ipynb
 *.sh
 style_images
+*.so
+raymarching/build

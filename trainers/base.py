@@ -86,12 +86,12 @@ class Trainer:
         torch.cuda.manual_seed(self.train_cfg.rng_seed)
 
         # Initialize dataset
-        self.train_set = get_dataset(self.dataset_cfg, 'train')
+        self.train_set = get_dataset(self.dataset_cfg, is_train=True)
         self.train_set.bbox = self.train_set.bbox.to(self.device)
         self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = get_dataset(self.dataset_cfg, 'test',
+        self.test_set = get_dataset(self.dataset_cfg, is_train=False,
                                     max_count=self.train_cfg.max_eval_count)
         self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
@@ -130,7 +130,7 @@ class Trainer:
 
         # Initialize renderer
         self.renderer = Renderer(
-            self.model, self.render_cfg, self.train_set.intrinsics, self.dataset_cfg.bound,
+            self.model, self.render_cfg, self.train_set.intr, self.dataset_cfg.bound,
             bg_color=self.dataset_cfg.bg_color,
             precrop_frac=self.train_cfg.precrop_fraction
         )

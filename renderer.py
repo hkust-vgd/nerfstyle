@@ -60,7 +60,8 @@ class Renderer(TensorModule):
 
         # Raymarching variables
         self.bound = bound
-        self.aabb = torch.tensor([-bound, -bound, -bound, bound, bound, bound])
+        # self.aabb = torch.tensor([-bound, -bound, -bound, bound, bound, bound])
+        self.aabb = torch.tensor([-bound, -bound, -1., bound, bound, 1.])
 
         cascade = self.cfg.cascade
         grid_size = self.cfg.grid_size
@@ -167,19 +168,20 @@ class Renderer(TensorModule):
         self,
         rays: RayBatch
     ) -> Tuple[Tensor, Tensor]:
+        rays_ndc = rays.warp_ndc(1., self.intr)
+
         if self.local_step % self.cfg.update_iter == 0:
             self.update_state()
 
-        origin = torch.tile(rays.origin, (len(rays.dests), 1))
         nears, fars = raymarching.near_far_from_aabb(
-            origin, rays.dests, self.aabb, self.cfg.min_near)
+            rays_ndc.origins, rays_ndc.dirs, self.aabb, self.cfg.min_near)
 
         counter = self.step_counter[self.local_step % STEP_CTR_SIZE]
         counter.zero_()
         self.local_step += 1
 
         xyzs, dirs, deltas, rays_info = raymarching.march_rays_train(
-            origin, rays.dests, self.bound, self.density_bitfield,
+            rays_ndc.origins, rays_ndc.dirs, self.bound, self.density_bitfield,
             self.cfg.cascade, self.cfg.grid_size, nears, fars, counter, self.mean_count,
             True, 128, True, 0., self.cfg.max_steps)
 
@@ -197,11 +199,12 @@ class Renderer(TensorModule):
         self,
         rays: RayBatch
     ) -> Tuple[Tensor, Tensor]:
-        origin = torch.tile(rays.origin, (len(rays.dests), 1))
-        nears, fars = raymarching.near_far_from_aabb(
-            origin, rays.dests, self.aabb, self.cfg.min_near)
+        rays_ndc = rays.warp_ndc(1., self.intr)
 
-        N = len(rays)
+        nears, fars = raymarching.near_far_from_aabb(
+            rays_ndc.origins, rays_ndc.dirs, self.aabb, self.cfg.min_near)
+
+        N = len(rays_ndc)
         weights_sum = torch.zeros(N, dtype=torch.float32, device=self.device)
         depth = torch.zeros(N, dtype=torch.float32, device=self.device)
         image = torch.zeros(N, 3, dtype=torch.float32, device=self.device)
@@ -218,7 +221,7 @@ class Renderer(TensorModule):
 
             n_step = max(min(N // n_alive, 8), 1)
             xyzs, dirs, deltas = raymarching.march_rays(
-                n_alive, n_step, rays_alive, rays_t, origin, rays.dests,
+                n_alive, n_step, rays_alive, rays_t, rays_ndc.origins, rays_ndc.dirs,
                 self.bound, self.density_bitfield, self.cfg.cascade, self.cfg.grid_size,
                 nears, fars, 128, False, 0., self.cfg.max_steps)
 

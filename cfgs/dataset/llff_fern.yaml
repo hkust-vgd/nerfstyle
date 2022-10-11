@@ -1,0 +1,3 @@
+root_path: ~/datasets/nerf_llff_data/fern/
+type: LLFF
+bound: 2.0

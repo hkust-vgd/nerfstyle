@@ -8,7 +8,7 @@ from data.base_dataset import BaseDataset
 
 def get_dataset(
     dataset_cfg: DatasetConfig,
-    split: str,
+    is_train: bool,
     max_count: Optional[int] = None
 ) -> BaseDataset:
     dataset_type = dataset_cfg.type
@@ -18,7 +18,7 @@ def get_dataset(
 
     module = importlib.import_module(module_name)
     module_ctor = getattr(module, class_name)
-    dataset = module_ctor(dataset_cfg, split, max_count)
+    dataset = module_ctor(dataset_cfg, is_train, max_count)
 
     return dataset
 

@@ -37,10 +37,10 @@ class ReplicaDataset(BaseDataset):
         ])
 
         assert len(self.rgb_paths) == len(self.cameras)
-        self._set_frame_ids(len(self.rgb_paths))
+        frame_ids = self._init_frame_ids(len(self.rgb_paths))
         if self.max_count is not None:
-            self.rgb_paths = [self.rgb_paths[i] for i in self.frame_ids]
-            self.cameras = [self.cameras[i] for i in self.frame_ids]
+            self.rgb_paths = [self.rgb_paths[i] for i in frame_ids]
+            self.cameras = [self.cameras[i] for i in frame_ids]
 
         self.imgs = np.stack([utils.parse_rgb(path) for path in self.rgb_paths])
         self.poses = np.stack([camera['Rt'] for camera in self.cameras])
@@ -62,11 +62,10 @@ class ReplicaDataset(BaseDataset):
         _, _, H, W = self.imgs.shape
         cx, cy = W // 2, H // 2
         f = self.cfg.replica_cfg.focal_ratio * max(H, W)
-        self.intrinsics = Intrinsics(H, W, f, f, cx, cy)
+        self.intr = Intrinsics(H, W, f, f, cx, cy)
 
     def __str__(self):
-        desc = 'Replica dataset \"{}\" with {:d} entries'
-        return desc.format(self.cfg.replica_cfg.name, len(self))
+        return super().__str__(name=self.cfg.replica_cfg.name)
 
 
 def load_bbox(

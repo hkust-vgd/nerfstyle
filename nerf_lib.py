@@ -110,7 +110,7 @@ class NerfLib:
 
         # Pixel coords to camera frame
         dirs = torch.tensor(np.stack([
-            (i - intr.cx) / intr.fx, (j - intr.cy) / intr.fy, k
+            (i - intr.cx) / intr.fx, -(j - intr.cy) / intr.fy, -k
         ], axis=-1), device=self._device)
 
         # Camera frame to world frame
@@ -124,7 +124,7 @@ class NerfLib:
                 target = einops.rearrange(img, 'c h w -> (h w) c')
         else:
             indices_1d = np.random.choice(np.arange(w * h), bsize, replace=False)
-            indices_2d = (indices_1d // h, indices_1d % h)
+            indices_2d = (indices_1d // w, indices_1d % w)
             coords_y, coords_x = indices_2d[0] + dy, indices_2d[1] + dx
             rays_d = rays_d[indices_2d]
             if img is not None:
