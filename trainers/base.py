@@ -70,7 +70,12 @@ class Trainer:
         self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg_path, nargs=nargs)
         self.train_cfg, nargs = TrainConfig.load_nargs(nargs=nargs)
         self.net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
-        self.render_cfg, nargs = RendererConfig.load_nargs(nargs=nargs)
+
+        render_cfg_path = Path('cfgs/renderer/{}.yaml'.format(self.dataset_cfg.type.lower()))
+        if not render_cfg_path.exists():
+            render_cfg_path = None
+        self.render_cfg, nargs = RendererConfig.load_nargs(render_cfg_path, nargs=nargs)
+
         if len(nargs) > 0:
             self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 

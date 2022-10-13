@@ -328,6 +328,13 @@ class RendererConfig(Config):
     t_thresh: float
     """Transmittance threshold during ray accumulation."""
 
+    use_ndc: bool
+    """Use NDC for rendering."""
+
+    flip_camera: int
+    """Bitwise value (0-7) for flipping X/Y/Z axes of camera frame. If no flipping, the axes \
+        point to the right (X) / down (Y) / front (Z)."""
+
     max_steps: int
     """Maximum no. of sampled points along each ray."""
 

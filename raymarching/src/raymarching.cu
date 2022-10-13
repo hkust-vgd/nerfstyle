@@ -312,9 +312,10 @@ template <typename scalar_t>
 __global__ void kernel_march_rays_train(
     const scalar_t * __restrict__ rays_o,
     const scalar_t * __restrict__ rays_d,  
+    const scalar_t * __restrict__ z_hats,
     const uint8_t * __restrict__ grid,
     const float bound,
-    const float dt_gamma, const uint32_t max_steps,
+    const float dt_gamma, const uint32_t max_steps, const bool is_ndc,
     const uint32_t N, const uint32_t C, const uint32_t H, const uint32_t M,
     const scalar_t* __restrict__ nears, 
     const scalar_t* __restrict__ fars,
@@ -330,6 +331,7 @@ __global__ void kernel_march_rays_train(
     // locate
     rays_o += n * 3;
     rays_d += n * 3;
+    z_hats += n;
 
     // ray marching
     const float ox = rays_o[0], oy = rays_o[1], oz = rays_o[2];
@@ -417,12 +419,14 @@ __global__ void kernel_march_rays_train(
 
     xyzs += point_index * 3;
     dirs += point_index * 3;
-    deltas += point_index * 2;
+    deltas += point_index * 4;
 
     t = t0;
     uint32_t step = 0;
 
     float last_t = t;
+    float last_z = clamp(oz + t * dz, -bound, bound);
+    float new_z;
 
     while (t < far && step < num_steps) {
         // current point
@@ -460,9 +464,15 @@ __global__ void kernel_march_rays_train(
             deltas[0] = dt;
             deltas[1] = t - last_t; // used to calc depth
             last_t = t;
+            if (is_ndc) {
+                new_z = clamp(oz + t * dz, -bound, bound);
+                deltas[2] = (2 / (new_z - 1) - 2 / (z - 1)) / z_hats[0];
+                deltas[3] = (2 / (new_z - 1) - 2 / (last_z - 1)) / z_hats[0];
+                last_z = z;
+            }
             xyzs += 3;
             dirs += 3;
-            deltas += 2;
+            deltas += 4;
             step++;
         // else, skip a large step (basically skip a voxel grid)
         } else {
@@ -479,13 +489,13 @@ __global__ void kernel_march_rays_train(
     }
 }
 
-void march_rays_train(const at::Tensor rays_o, const at::Tensor rays_d, const at::Tensor grid, const float bound, const float dt_gamma, const uint32_t max_steps, const uint32_t N, const uint32_t C, const uint32_t H, const uint32_t M, const at::Tensor nears, const at::Tensor fars, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor rays, at::Tensor counter, at::Tensor noises) {
+void march_rays_train(const at::Tensor rays_o, const at::Tensor rays_d, const at::Tensor z_hats, const at::Tensor grid, const float bound, const float dt_gamma, const uint32_t max_steps, const bool is_ndc, const uint32_t N, const uint32_t C, const uint32_t H, const uint32_t M, const at::Tensor nears, const at::Tensor fars, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor rays, at::Tensor counter, at::Tensor noises) {
 
     static constexpr uint32_t N_THREAD = 128;
     
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     rays_o.scalar_type(), "march_rays_train", ([&] {
-        kernel_march_rays_train<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<uint8_t>(), bound, dt_gamma, max_steps, N, C, H, M, nears.data_ptr<scalar_t>(), fars.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), noises.data_ptr<scalar_t>());
+        kernel_march_rays_train<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), z_hats.data_ptr<scalar_t>(), grid.data_ptr<uint8_t>(), bound, dt_gamma, max_steps, is_ndc, N, C, H, M, nears.data_ptr<scalar_t>(), fars.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), noises.data_ptr<scalar_t>());
     }));
 }
 
@@ -503,7 +513,7 @@ __global__ void kernel_composite_rays_train_forward(
     const scalar_t * __restrict__ rgbs,  
     const scalar_t * __restrict__ deltas,
     const int * __restrict__ rays,
-    const uint32_t M, const uint32_t N, const float T_thresh, 
+    const uint32_t M, const uint32_t N, const float T_thresh, const bool is_ndc,
     scalar_t * weights_sum,
     scalar_t * depth,
     scalar_t * image
@@ -529,7 +539,7 @@ __global__ void kernel_composite_rays_train_forward(
 
     sigmas += offset;
     rgbs += offset * 3;
-    deltas += offset * 2;
+    deltas += offset * 4;
 
     // accumulate 
     uint32_t step = 0;
@@ -539,14 +549,14 @@ __global__ void kernel_composite_rays_train_forward(
 
     while (step < num_steps) {
 
-        const scalar_t alpha = 1.0f - __expf(- sigmas[0] * deltas[0]);
+        const scalar_t alpha = 1.0f - __expf(- sigmas[0] * (is_ndc ? deltas[2] : deltas[0]));
         const scalar_t weight = alpha * T;
 
         r += weight * rgbs[0];
         g += weight * rgbs[1];
         b += weight * rgbs[2];
         
-        t += deltas[1]; // real delta
+        t += (is_ndc ? deltas[3] : deltas[1]); // real delta
         d += weight * t;
         
         ws += weight;
@@ -561,7 +571,7 @@ __global__ void kernel_composite_rays_train_forward(
         // locate
         sigmas++;
         rgbs += 3;
-        deltas += 2;
+        deltas += 4;
 
         step++;
     }
@@ -577,13 +587,13 @@ __global__ void kernel_composite_rays_train_forward(
 }
 
 
-void composite_rays_train_forward(const at::Tensor sigmas, const at::Tensor rgbs, const at::Tensor deltas, const at::Tensor rays, const uint32_t M, const uint32_t N, const float T_thresh, at::Tensor weights_sum, at::Tensor depth, at::Tensor image) {
+void composite_rays_train_forward(const at::Tensor sigmas, const at::Tensor rgbs, const at::Tensor deltas, const at::Tensor rays, const uint32_t M, const uint32_t N, const float T_thresh, const bool is_ndc, at::Tensor weights_sum, at::Tensor depth, at::Tensor image) {
 
     static constexpr uint32_t N_THREAD = 128;
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     sigmas.scalar_type(), "composite_rays_train_forward", ([&] {
-        kernel_composite_rays_train_forward<<<div_round_up(N, N_THREAD), N_THREAD>>>(sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), M, N, T_thresh, weights_sum.data_ptr<scalar_t>(), depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
+        kernel_composite_rays_train_forward<<<div_round_up(N, N_THREAD), N_THREAD>>>(sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), M, N, T_thresh, is_ndc, weights_sum.data_ptr<scalar_t>(), depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
     }));
 }
 
@@ -606,6 +616,7 @@ __global__ void kernel_composite_rays_train_backward(
     const scalar_t * __restrict__ rgbs, 
     const scalar_t * __restrict__ deltas,
     const int * __restrict__ rays,
+    const bool is_ndc,
     const scalar_t * __restrict__ weights_sum,
     const scalar_t * __restrict__ image,
     const uint32_t M, const uint32_t N, const float T_thresh,
@@ -629,7 +640,7 @@ __global__ void kernel_composite_rays_train_backward(
     image += index * 3;
     sigmas += offset;
     rgbs += offset * 3;
-    deltas += offset * 2;
+    deltas += offset * 4;
     grad_sigmas += offset;
     grad_rgbs += offset * 3;
 
@@ -642,7 +653,7 @@ __global__ void kernel_composite_rays_train_backward(
 
     while (step < num_steps) {
         
-        const scalar_t alpha = 1.0f - __expf(- sigmas[0] * deltas[0]);
+        const scalar_t alpha = 1.0f - __expf(- sigmas[0] * (is_ndc ? deltas[2] : deltas[0]));
         const scalar_t weight = alpha * T;
 
         r += weight * rgbs[0];
@@ -662,7 +673,7 @@ __global__ void kernel_composite_rays_train_backward(
         grad_rgbs[2] = grad_image[2] * weight;
 
         // write grad_sigmas
-        grad_sigmas[0] = deltas[0] * (
+        grad_sigmas[0] = (is_ndc ? deltas[2] : deltas[0]) * (
             grad_image[0] * (T * rgbs[0] - (r_final - r)) + 
             grad_image[1] * (T * rgbs[1] - (g_final - g)) + 
             grad_image[2] * (T * rgbs[2] - (b_final - b)) +
@@ -674,7 +685,7 @@ __global__ void kernel_composite_rays_train_backward(
         // locate
         sigmas++;
         rgbs += 3;
-        deltas += 2;
+        deltas += 4;
         grad_sigmas++;
         grad_rgbs += 3;
 
@@ -683,13 +694,13 @@ __global__ void kernel_composite_rays_train_backward(
 }
 
 
-void composite_rays_train_backward(const at::Tensor grad_weights_sum, const at::Tensor grad_image, const at::Tensor sigmas, const at::Tensor rgbs, const at::Tensor deltas, const at::Tensor rays, const at::Tensor weights_sum, const at::Tensor image, const uint32_t M, const uint32_t N, const float T_thresh, at::Tensor grad_sigmas, at::Tensor grad_rgbs) {
+void composite_rays_train_backward(const at::Tensor grad_weights_sum, const at::Tensor grad_image, const at::Tensor sigmas, const at::Tensor rgbs, const at::Tensor deltas, const at::Tensor rays, const bool is_ndc, const at::Tensor weights_sum, const at::Tensor image, const uint32_t M, const uint32_t N, const float T_thresh, at::Tensor grad_sigmas, at::Tensor grad_rgbs) {
 
     static constexpr uint32_t N_THREAD = 128;
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     grad_image.scalar_type(), "composite_rays_train_backward", ([&] {
-        kernel_composite_rays_train_backward<<<div_round_up(N, N_THREAD), N_THREAD>>>(grad_weights_sum.data_ptr<scalar_t>(), grad_image.data_ptr<scalar_t>(), sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), weights_sum.data_ptr<scalar_t>(), image.data_ptr<scalar_t>(), M, N, T_thresh, grad_sigmas.data_ptr<scalar_t>(), grad_rgbs.data_ptr<scalar_t>());
+        kernel_composite_rays_train_backward<<<div_round_up(N, N_THREAD), N_THREAD>>>(grad_weights_sum.data_ptr<scalar_t>(), grad_image.data_ptr<scalar_t>(), sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), is_ndc, weights_sum.data_ptr<scalar_t>(), image.data_ptr<scalar_t>(), M, N, T_thresh, grad_sigmas.data_ptr<scalar_t>(), grad_rgbs.data_ptr<scalar_t>());
     }));
 }
 
@@ -706,8 +717,9 @@ __global__ void kernel_march_rays(
     const scalar_t* __restrict__ rays_t, 
     const scalar_t* __restrict__ rays_o, 
     const scalar_t* __restrict__ rays_d, 
+    const scalar_t* __restrict__ z_hats,
     const float bound,
-    const float dt_gamma, const uint32_t max_steps,
+    const float dt_gamma, const uint32_t max_steps, const bool is_ndc,
     const uint32_t C, const uint32_t H,
     const uint8_t * __restrict__ grid,
     const scalar_t* __restrict__ nears,
@@ -724,9 +736,11 @@ __global__ void kernel_march_rays(
     // locate
     rays_o += index * 3;
     rays_d += index * 3;
+    rays_t += index * (is_ndc ? 2 : 1);
+    z_hats += index;
     xyzs += n * n_step * 3;
     dirs += n * n_step * 3;
-    deltas += n * n_step * 2;
+    deltas += n * n_step * 4;
     
     const float ox = rays_o[0], oy = rays_o[1], oz = rays_o[2];
     const float dx = rays_d[0], dy = rays_d[1], dz = rays_d[2];
@@ -734,7 +748,7 @@ __global__ void kernel_march_rays(
     const float rH = 1 / (float)H;
     const float H3 = H * H * H;
     
-    float t = rays_t[index]; // current ray's t
+    float t = rays_t[0]; // current ray's t
     const float near = nears[index], far = fars[index];
 
     const float dt_min = 2 * SQRT3() / max_steps;
@@ -747,6 +761,8 @@ __global__ void kernel_march_rays(
     t += clamp(t * dt_gamma, dt_min, dt_max) * noise;
 
     float last_t = t;
+    float last_z = clamp(oz + t * dz, -bound, bound);
+    float new_z;
 
     while (t < far && step < n_step) {
         // current point
@@ -783,11 +799,17 @@ __global__ void kernel_march_rays(
             t += dt;
             deltas[0] = dt;
             deltas[1] = t - last_t; // used to calc depth
+            if (is_ndc) {
+                new_z = clamp(oz + t * dz, -bound, bound);
+                deltas[2] = (2 / (new_z - 1) - 2 / (z - 1)) / z_hats[0];
+                deltas[3] = (2 / (new_z - 1) - 2 / (last_z - 1)) / z_hats[0];
+                last_z = new_z;
+            }
             last_t = t;
             // step
             xyzs += 3;
             dirs += 3;
-            deltas += 2;
+            deltas += 4;
             step++;
 
         // else, skip a large step (basically skip a voxel grid)
@@ -806,12 +828,12 @@ __global__ void kernel_march_rays(
 }
 
 
-void march_rays(const uint32_t n_alive, const uint32_t n_step, const at::Tensor rays_alive, const at::Tensor rays_t, const at::Tensor rays_o, const at::Tensor rays_d, const float bound, const float dt_gamma, const uint32_t max_steps, const uint32_t C, const uint32_t H, const at::Tensor grid, const at::Tensor near, const at::Tensor far, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor noises) {
+void march_rays(const uint32_t n_alive, const uint32_t n_step, const at::Tensor rays_alive, const at::Tensor rays_t, const at::Tensor rays_o, const at::Tensor rays_d, const at::Tensor z_hats, const float bound, const float dt_gamma, const uint32_t max_steps, const bool is_ndc, const uint32_t C, const uint32_t H, const at::Tensor grid, const at::Tensor near, const at::Tensor far, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor noises) {
     static constexpr uint32_t N_THREAD = 128;
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     rays_o.scalar_type(), "march_rays", ([&] {
-        kernel_march_rays<<<div_round_up(n_alive, N_THREAD), N_THREAD>>>(n_alive, n_step, rays_alive.data_ptr<int>(), rays_t.data_ptr<scalar_t>(), rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), bound, dt_gamma, max_steps, C, H, grid.data_ptr<uint8_t>(), near.data_ptr<scalar_t>(), far.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), noises.data_ptr<scalar_t>());
+        kernel_march_rays<<<div_round_up(n_alive, N_THREAD), N_THREAD>>>(n_alive, n_step, rays_alive.data_ptr<int>(), rays_t.data_ptr<scalar_t>(), rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), z_hats.data_ptr<scalar_t>(), bound, dt_gamma, max_steps, is_ndc, C, H, grid.data_ptr<uint8_t>(), near.data_ptr<scalar_t>(), far.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), noises.data_ptr<scalar_t>());
     }));
 }
 
@@ -826,6 +848,7 @@ __global__ void kernel_composite_rays(
     const scalar_t* __restrict__ sigmas, 
     const scalar_t* __restrict__ rgbs, 
     const scalar_t* __restrict__ deltas, 
+    const bool is_ndc,
     scalar_t* weights_sum, scalar_t* depth, scalar_t* image
 ) {
     const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
@@ -836,14 +859,20 @@ __global__ void kernel_composite_rays(
     // locate 
     sigmas += n * n_step;
     rgbs += n * n_step * 3;
-    deltas += n * n_step * 2;
+    deltas += n * n_step * 4;
     
-    rays_t += index;
+    rays_t += index * (is_ndc ? 2 : 1);
     weights_sum += index;
     depth += index;
     image += index * 3;
 
-    scalar_t t = rays_t[0]; // current ray's t
+    scalar_t t_rm, t_phy;
+    if (is_ndc) {
+        t_rm = rays_t[0];
+        t_phy = rays_t[1];
+    } else {
+        t_phy = rays_t[0];
+    }
     
     scalar_t weight_sum = weights_sum[0];
     scalar_t d = depth[0];
@@ -858,7 +887,7 @@ __global__ void kernel_composite_rays(
         // ray is terminated if delta == 0
         if (deltas[0] == 0) break;
         
-        const scalar_t alpha = 1.0f - __expf(- sigmas[0] * deltas[0]);
+        const scalar_t alpha = 1.0f - __expf(- sigmas[0] * (is_ndc ? deltas[2] : deltas[0]));
 
         /* 
         T_0 = 1; T_i = \prod_{j=0}^{i-1} (1 - alpha_j)
@@ -870,8 +899,13 @@ __global__ void kernel_composite_rays(
         const scalar_t weight = alpha * T;
         weight_sum += weight;
 
-        t += deltas[1]; // real delta
-        d += weight * t;
+        if (is_ndc) {
+            t_rm += deltas[1];
+            t_phy += deltas[3];
+        } else {
+            t_phy += deltas[1];
+        }
+        d += weight * t_phy;
         r += weight * rgbs[0];
         g += weight * rgbs[1];
         b += weight * rgbs[2];
@@ -885,7 +919,7 @@ __global__ void kernel_composite_rays(
         // locate
         sigmas++;
         rgbs += 3;
-        deltas += 2;
+        deltas += 4;
         step++;
     }
 
@@ -895,7 +929,12 @@ __global__ void kernel_composite_rays(
     if (step < n_step) {
         rays_alive[n] = -1;
     } else {
-        rays_t[0] = t;
+        if (is_ndc) {
+            rays_t[0] = t_rm;
+            rays_t[1] = t_phy;
+        } else {
+            rays_t[0] = t_phy;
+        }
     }
 
     weights_sum[0] = weight_sum; // this is the thing I needed!
@@ -906,10 +945,10 @@ __global__ void kernel_composite_rays(
 }
 
 
-void composite_rays(const uint32_t n_alive, const uint32_t n_step, const float T_thresh, at::Tensor rays_alive, at::Tensor rays_t, const at::Tensor sigmas, const at::Tensor rgbs, const at::Tensor deltas, at::Tensor weights, at::Tensor depth, at::Tensor image) {
+void composite_rays(const uint32_t n_alive, const uint32_t n_step, const float T_thresh, at::Tensor rays_alive, at::Tensor rays_t, const at::Tensor sigmas, const at::Tensor rgbs, const at::Tensor deltas, const bool is_ndc, at::Tensor weights, at::Tensor depth, at::Tensor image) {
     static constexpr uint32_t N_THREAD = 128;
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     image.scalar_type(), "composite_rays", ([&] {
-        kernel_composite_rays<<<div_round_up(n_alive, N_THREAD), N_THREAD>>>(n_alive, n_step, T_thresh, rays_alive.data_ptr<int>(), rays_t.data_ptr<scalar_t>(), sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), weights.data_ptr<scalar_t>(), depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
+        kernel_composite_rays<<<div_round_up(n_alive, N_THREAD), N_THREAD>>>(n_alive, n_step, T_thresh, rays_alive.data_ptr<int>(), rays_t.data_ptr<scalar_t>(), sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), is_ndc, weights.data_ptr<scalar_t>(), depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
     }));
 }

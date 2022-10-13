@@ -73,7 +73,8 @@ class NerfLib:
         intr: Intrinsics,
         img: Optional[TensorType['H', 'W', 3]] = None,
         precrop: float = 1.,
-        bsize: Optional[int] = None
+        bsize: Optional[int] = None,
+        camera_flip: int = 0
     ) -> Tuple[RayBatch, Optional[TensorType['K', 3]]]:
         """Generate a batch of rays.
 
@@ -110,8 +111,10 @@ class NerfLib:
 
         # Pixel coords to camera frame
         dirs = torch.tensor(np.stack([
-            (i - intr.cx) / intr.fx, -(j - intr.cy) / intr.fy, -k
+            (i - intr.cx) / intr.fx, (j - intr.cy) / intr.fy, k
         ], axis=-1), device=self._device)
+        flip = np.where([(camera_flip >> i) & 1 for i in [2, 1, 0]], -1, 1)
+        dirs *= torch.tensor(flip, device=self._device)
 
         # Camera frame to world frame
         rays_d = torch.einsum('ij, hwj -> hwi', pose_r, dirs)

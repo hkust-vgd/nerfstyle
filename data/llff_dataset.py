@@ -10,7 +10,7 @@ class LLFFDataset(BaseDataset):
 
     def __init__(
         self, *args,
-        factor: int = 4,
+        factor: int = 8,
         bd_factor: Optional[float] = 4/3
     ) -> None:
         """

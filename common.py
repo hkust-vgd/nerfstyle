@@ -109,13 +109,18 @@ class RayBatch:
         Interpolate ray batch.
 
         Args:
-            coeffs (Tensor[N, K]): Array of K coefficients for each ray.
+            coeffs (Tensor[N, ] / Tensor[N, K]): Array of coefficients for each ray.
 
         Returns:
-            Tensor[N, K, 3]: Array of points at interpolated positions for each ray.
+            Tensor[N, 3] / Tensor[N, K, 3]: Array of points at interpolated positions for each ray.
         """
         assert len(coeffs) == len(self)
-        out = torch.einsum('nc, nk -> nkc', self.dirs, coeffs) + self.origins
+        assert len(coeffs.shape) <= 2
+        if len(coeffs.shape) == 1:
+            einsum = 'nc, n -> nc'
+        else:
+            einsum = 'nc, nk -> nkc'
+        out = torch.einsum(einsum, self.dirs, coeffs) + self.origins
         return out
 
     def warp_ndc(self, near: int, intr: Intrinsics) -> RayBatch:
