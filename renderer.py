@@ -1,4 +1,5 @@
 import itertools
+from math import *
 from packaging import version as pver
 from typing import Dict, Optional, Tuple, TypeVar
 import torch
@@ -65,10 +66,10 @@ class Renderer(TensorModule):
         else:
             self.aabb = torch.tensor([-bound, -bound, -bound, bound, bound, bound])
 
-        cascade = self.cfg.cascade
+        self.cascade = 1 + ceil(log2(bound))
         grid_size = self.cfg.grid_size
-        bitfield_size = cascade * (grid_size ** 3) // 8
-        self.density_grid = torch.zeros((cascade, grid_size ** 3))
+        bitfield_size = self.cascade * (grid_size ** 3) // 8
+        self.density_grid = torch.zeros((self.cascade, grid_size ** 3))
         self.density_bitfield = torch.zeros((bitfield_size, ), dtype=torch.uint8)
         self.step_counter = torch.zeros((STEP_CTR_SIZE, 2), dtype=torch.int32)
         self.local_step = 0
@@ -130,14 +131,14 @@ class Renderer(TensorModule):
                 # Normalize to [-1, 1]
                 xyzs = 2 * coords.float() / (self.cfg.grid_size - 1) - 1
 
-                for cas in range(self.cfg.cascade):
+                for cas in range(self.cascade):
                     tmp_grid[cas, indices] = self._compute_occ_sigmas(xyzs, cas)
 
         else:
             # Random sampling update
             self.tmp = True
             N = self.cfg.grid_size ** 3 // 4
-            for cas in range(self.cfg.cascade):
+            for cas in range(self.cascade):
                 coords = torch.randint(0, self.cfg.grid_size, (N, 3), device=self.device)
                 indices = raymarching.morton3D(coords).long()
 
@@ -187,7 +188,7 @@ class Renderer(TensorModule):
 
         xyzs, dirs, deltas, rays_info = raymarching.march_rays_train(
             rays.origins, rays.dirs, z_hats, self.bound, self.density_bitfield,
-            self.cfg.cascade, self.cfg.grid_size, nears, fars, counter, self.mean_count,
+            self.cascade, self.cfg.grid_size, nears, fars, counter, self.mean_count,
             True, 128, True, 0., self.cfg.max_steps, self.cfg.use_ndc)
 
         rgbs, sigmas = self.model(xyzs, dirs)
@@ -236,7 +237,7 @@ class Renderer(TensorModule):
             n_step = max(min(N // n_alive, 8), 1)
             xyzs, dirs, deltas = raymarching.march_rays(
                 n_alive, n_step, rays_alive, rays_t, rays.origins, rays.dirs, z_hats,
-                self.bound, self.density_bitfield, self.cfg.cascade, self.cfg.grid_size,
+                self.bound, self.density_bitfield, self.cascade, self.cfg.grid_size,
                 nears, fars, 128, False, 0., self.cfg.max_steps, self.cfg.use_ndc)
 
             rgbs, sigmas = self.model(xyzs, dirs)

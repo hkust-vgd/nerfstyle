@@ -235,6 +235,9 @@ class DatasetConfig(Config):
     bound: float
     """Radius of bounding box for sampling. Should contain entire scene."""
 
+    scale: float
+    """Scale all poses (w.r.t origin) by a factor."""
+
     bg_color: str
     """Background color. Any matplotlib.colors compatible string is acceptable."""
 
@@ -310,9 +313,6 @@ class NetworkConfig(Config):
 
 @dataclass
 class RendererConfig(Config):
-    cascade: int
-    """No. of cascade levels for occupancy grid."""
-
     grid_size: int
     """Side length of occupancy grid."""
 

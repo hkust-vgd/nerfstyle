@@ -1,6 +1,7 @@
 from copy import copy
 from pathlib import Path
 import pickle
+from re import M
 import sys
 import time
 from typing import Callable, Dict, List, Optional
@@ -122,7 +123,8 @@ class Trainer:
         self.optim = torch.optim.Adam(
             params=train_params,
             lr=self.train_cfg.initial_learning_rate,
-            betas=(0.9, 0.999)
+            betas=(0.9, 0.999),
+            eps=1e-15
         )
 
         def lr_lambda(_): return 1.
@@ -210,7 +212,8 @@ class Trainer:
 
     def calc_loss(
         self,
-        output: Dict[str, torch.Tensor]
+        output: Dict[str, torch.Tensor],
+        mse_only: bool = False
     ) -> Dict[str, LossValue]:
         """
         Compute losses from render output.
@@ -231,6 +234,9 @@ class Trainer:
             'psnr': LossValue('PSNR', 'psnr', utils.compute_psnr(mse_loss))
         }
 
+        if mse_only:
+            return losses
+
         sparsity_loss = 0
         sparsity_lambda = self.train_cfg.sparsity_lambda
         if sparsity_lambda > 0.:
@@ -242,9 +248,8 @@ class Trainer:
         weight_reg_loss = 0
         weight_reg_lambda = self.train_cfg.weight_reg_lambda
         if weight_reg_lambda > 0.:
-            view_params = [p for n, p in self.model.named_parameters()
-                           if ('c_layer' in n) or ('d_layers' in n)]
-            norm_sum = torch.sum(torch.stack([p.norm(2) for p in view_params]))
+            net_params = [p for n, p in self.model.named_parameters() if 'rgb_net' in n]
+            norm_sum = torch.sum(torch.stack([p.norm(2) for p in net_params]))
             weight_reg_loss = norm_sum * weight_reg_lambda
             losses['weight_reg'] = LossValue('Weight Reg.', 'weight_reg_loss', weight_reg_loss)
 
@@ -315,7 +320,7 @@ class Trainer:
             save_path = img_dir / 'frame_{}.png'.format(frame_id)
             torchvision.utils.save_image(rgb_output, save_path)
 
-            eval_losses.append(self.calc_loss(output))
+            eval_losses.append(self.calc_loss(output, mse_only=True))
 
         avg_loss = copy(eval_losses[0])
         avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
@@ -346,7 +351,7 @@ class Trainer:
             if self.train_cfg.sparsity_lambda > 0.:
                 bbox = self.train_set.bbox
                 sparsity_pts = torch.rand((self.train_cfg.sparsity_samples, 3), device=self.device)
-                sparsity_pts = sparsity_pts * bbox.size() + bbox.min_pt
+                sparsity_pts = sparsity_pts * bbox.size + bbox.min_pt
                 output['sparsity'] = self.model(sparsity_pts)
 
             losses = self.calc_loss(output)

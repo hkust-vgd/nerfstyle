@@ -407,15 +407,9 @@ def to_device(old_dict: Dict[str, torch.Tensor], device: str):
     return new_dict
 
 
-def train_test_split(items: List[Any], split_every: int, is_train: bool) -> List[Any]:
-    train_ids, test_ids = [], []
-    for i, obj in enumerate(items):
-        if i % split_every == 0:
-            test_ids.append(obj)
-        else:
-            train_ids.append(obj)
-
-    return train_ids if is_train else test_ids
+def train_test_split(total: int, split_every: int, is_test: bool) -> List[int]:
+    ids = [i for i in np.arange(total) if (i % split_every == 0) == is_test]
+    return ids
 
 
 # TODO: type check ndarray sizes

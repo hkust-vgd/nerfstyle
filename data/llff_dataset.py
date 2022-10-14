@@ -11,6 +11,7 @@ class LLFFDataset(BaseDataset):
     def __init__(
         self, *args,
         factor: int = 8,
+        eval_every: int = 8,
         bd_factor: Optional[float] = 4/3
     ) -> None:
         """
@@ -33,14 +34,20 @@ class LLFFDataset(BaseDataset):
             images_dir = root / 'images_{:d}'.format(factor)
         assert images_dir.exists(), 'Images for chosen factor do not exist'
 
-        self.rgb_paths = sorted(images_dir.glob('image*.png'))
+        self.rgb_paths = sorted(images_dir.glob('*.png'))
         poses_bds = np.load(root / 'poses_bounds.npy').astype(np.float32)
-        assert len(self.rgb_paths) == len(poses_bds)
+        assert len(self.rgb_paths) == len(poses_bds), 'No. of images ({:d}) ' \
+            'and poses ({:d}) do not match'.format(len(self.rgb_paths), len(poses_bds))
 
         frame_ids = self._init_frame_ids(len(self.rgb_paths))
         if self.max_count is not None:
             self.rgb_paths = [self.rgb_paths[i] for i in frame_ids]
             poses_bds = poses_bds[frame_ids]
+
+        split = utils.train_test_split(len(self.rgb_paths), eval_every, not self.is_train)
+        self.rgb_paths = [self.rgb_paths[i] for i in split]
+        poses_bds = poses_bds[split]
+        self.frame_str_ids = [self.frame_str_ids[i] for i in split]
 
         self.imgs = np.stack([utils.parse_rgb(path) for path in self.rgb_paths])
 

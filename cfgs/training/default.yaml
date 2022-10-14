@@ -14,10 +14,10 @@ intervals:
 rng_seed: 69420
 enable_amp: true
 ema_decay: 0.95
-sparsity_lambda: 0
+sparsity_lambda: 0.0
 sparsity_exp_coeff: 0.05
 sparsity_samples: 50000
-weight_reg_lambda: 0
+weight_reg_lambda: 0.0
 content_lambda: 0.025
 style_lambda: 0.1
 photo_lambda: 0.0001

@@ -1,4 +1,3 @@
-cascade: 1
 grid_size: 128
 grid_bsize: null
 update_iter: 16

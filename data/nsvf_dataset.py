@@ -28,6 +28,7 @@ class NSVFDataset(BaseDataset):
 
         self.imgs = np.stack([utils.parse_rgb(path) for path in self.rgb_paths])
         self.poses = np.stack([utils.load_matrix(path) for path in self.pose_paths], axis=0)
+        self.poses[:, :3, 3] *= self.cfg.scale
         self._alpha2white()
         self.bbox = BBox.from_radius(self.cfg.bound)
 
