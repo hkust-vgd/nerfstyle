@@ -1,6 +1,7 @@
 .vscode
 .idea
 .ipynb_checkpoints
+datasets
 runs
 outputs
 __pycache__
