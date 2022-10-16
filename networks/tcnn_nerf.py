@@ -45,7 +45,7 @@ class TCNerf(TensorModule):
         self.x_embedder = tcnn.Encoding(
             n_input_dims=3,
             encoding_config={
-                'otype': 'HashGrid',  # TODO: replace with 'DenseGrid'
+                'otype': 'HashGrid',
                 'n_levels': pos_enc_cfg.n_lvls,
                 'n_features_per_level': pos_enc_cfg.n_feats_per_lvl,
                 'log2_hashmap_size': pos_enc_cfg.hashmap_size,

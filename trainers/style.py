@@ -1,6 +1,7 @@
 from argparse import Namespace
 from functools import partial
 from typing import Dict, List
+import pickle
 
 import einops
 import torch
@@ -34,6 +35,22 @@ class StyleTrainer(Trainer):
         self.style_image = torch.tensor(style_image_np, device=self.device)
         self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
         self.photo_loss = MattingLaplacian(device=self.device)
+
+    @classmethod
+    def load_ckpt(
+        cls,
+        ckpt_path: str
+    ) -> 'StyleTrainer':
+        with open(ckpt_path, 'rb') as f:
+            trainer: Trainer = pickle.load(f)
+        
+        if isinstance(trainer, StyleTrainer):
+            # TODO: continue training
+            raise NotImplementedError('not implemented yet')
+        elif isinstance(trainer, Trainer):
+            raise NotImplementedError('sfsg')
+        else:
+            raise ValueError('Unpickled object is not trainer!')
 
     def calc_loss(
         self,

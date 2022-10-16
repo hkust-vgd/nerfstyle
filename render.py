@@ -20,7 +20,7 @@ def main():
     Load model + test set and render.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('ckpt_path')
+    parser.add_argument('ckpt')
     parser.add_argument('--name')
     parser.add_argument('--out-dir', default='./outputs')
     parser.add_argument('--out-dims', nargs=2, type=int, metavar=('WIDTH', 'HEIGHT'))
@@ -33,14 +33,14 @@ def main():
     nerf_lib.device = device
 
     # Load renderer (with model)
-    ckpt_trainer = Trainer.load_ckpt(args.ckpt_path)
+    ckpt_trainer = Trainer.load_ckpt(args.ckpt)
     renderer = ckpt_trainer.renderer
     ema = ckpt_trainer.ema
 
     # Setup output environment
     if args.name is None:
         # default experiment name
-        args.name = ckpt_trainer.name + '_' + Path(args.ckpt_path).stem
+        args.name = ckpt_trainer.name + '_' + Path(args.ckpt).stem
         if args.out_dims is not None:
             args.name += '_{:d}x{:d}'.format(*args.out_dims)
     out_dir: Path = Path(args.out_dir) / args.name

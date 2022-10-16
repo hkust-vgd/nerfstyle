@@ -208,20 +208,20 @@ class Config:
 
 @dataclass
 class BaseConfig(Config):
-    data_cfg_path: Path
-    """Path of dataset configuration file."""
-
     name: str
     """Name of experiment."""
 
-    run_dir: Path = './runs'
-    """Root path of log folder. Logs will be stored at <run_dir>/<name>."""
+    data_cfg: Optional[Path] = None
+    """Path of dataset configuration file."""
 
-    ckpt_path: Optional[Path] = None
+    ckpt: Optional[Path] = None
     """Path of checkpoint to load from."""
 
     style_image: Optional[Path] = None
     """If provided, model will perform style transfer on this image."""
+
+    run_dir: Path = './runs'
+    """Root path of log folder. Logs will be stored at <run_dir>/<name>."""
 
 
 @dataclass

@@ -41,8 +41,10 @@ class Trainer:
             cfg (BaseConfig): Command line arguments.
             nargs (List[str]): Overwritten config parameters.
         """
-
         self.logger = utils.create_logger(__name__)
+        if cfg.data_cfg is None:
+            self.logger.error('Data config must be provided if training from scratch')
+
         self.iter_ctr = 0
         self.time0 = 0
         self.time1 = 0
@@ -54,10 +56,10 @@ class Trainer:
 
         if next(self.log_dir.iterdir(), None) is not None:
             # log dir is not empty
-            if (cfg.ckpt_path is not None) and (Path(cfg.ckpt_path).parent == self.log_dir):
+            if (cfg.ckpt is not None) and (Path(cfg.ckpt).parent == self.log_dir):
                 # loading from existing checkpoint in log dir
                 proceed = utils.prompt_bool(
-                    'Checkpoints beyond "{}" will be overwritten. Proceed?'.format(cfg.ckpt_path))
+                    'Checkpoints beyond "{}" will be overwritten. Proceed?'.format(cfg.ckpt))
             else:
                 proceed = utils.prompt_bool('Log directory not empty. Clean directory?')
                 if proceed:
@@ -68,7 +70,7 @@ class Trainer:
                 sys.exit(1)
 
         # Parse arguments
-        self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg_path, nargs=nargs)
+        self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg, nargs=nargs)
         self.train_cfg, nargs = TrainConfig.load_nargs(nargs=nargs)
         self.net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
 

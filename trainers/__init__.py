@@ -32,11 +32,11 @@ def get_trainer(
     module = importlib.import_module(module_name)
     module_ctor: Trainer = getattr(module, class_name)
 
-    if cfg.ckpt_path is None:
+    if cfg.ckpt is None:
         # train from scratch, initalize new trainer
         trainer = module_ctor(cfg, nargs)
     else:
         # unpickle trianer from checkpoint
-        trainer = module_ctor.load_ckpt(cfg.ckpt_path)
+        trainer = module_ctor.load_ckpt(cfg.ckpt)
 
     return trainer
