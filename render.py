@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 import torchvision
 from tqdm import tqdm
 
+from config import BaseConfig
 from data import get_dataset
 from nerf_lib import nerf_lib
 from trainers.base import Trainer
@@ -33,7 +34,7 @@ def main():
     nerf_lib.device = device
 
     # Load renderer (with model)
-    ckpt_trainer = Trainer.load_ckpt(args.ckpt)
+    ckpt_trainer = utils.unpickle_trainer(args.ckpt)
     renderer = ckpt_trainer.renderer
     ema = ckpt_trainer.ema
 

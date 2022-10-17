@@ -414,6 +414,7 @@ def train_test_split(total: int, split_every: int, is_test: bool) -> List[int]:
 
 # TODO: type check ndarray sizes
 
+
 def full_mtx(mtx: np.ndarray):
     assert mtx.shape[-1] == 4 and mtx.shape[-2] <= 4, 'Wrong input shape'
     rows = mtx.shape[-2]

@@ -1,9 +1,10 @@
-from numpy import dtype
+from functools import partial
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torchtyping import TensorType, patch_typeguard
 import torchvision
+from torchvision.models.feature_extraction import create_feature_extractor
 from typeguard import typechecked
 
 patch_typeguard()
@@ -27,16 +28,16 @@ class FeatureExtractor(nn.Module):
         super().__init__()
 
         if net_type == 'vgg16':
-            net_fn = torchvision.models.vgg16
+            net_fn = partial(torchvision.models.vgg16, weights='DEFAULT')
             extract_layers = [3, 8, 15, 22, 29]
         elif net_type == 'vgg19':
-            net_fn = torchvision.models.vgg19
+            net_fn = partial(torchvision.models.vgg19, weights='DEFAULT')
             extract_layers = [3, 8, 17, 26, 35]
         else:
             raise NotImplementedError('Unrecognized net type "{}"'.format(net_type))
 
-        net = net_fn(pretrained=True).features.eval()
-        self.net = torchvision.models.feature_extraction.create_feature_extractor(
+        net = net_fn().features.eval()
+        self.net = create_feature_extractor(
             net, return_nodes={str(k): f'layer{i}' for i, k in enumerate(extract_layers)})
 
         self.register_buffer('mean', torch.Tensor([0.485, 0.456, 0.406])[:, None, None])

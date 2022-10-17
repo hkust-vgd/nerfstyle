@@ -1,13 +1,12 @@
-from argparse import Namespace
 from functools import partial
-from typing import Dict, List
-import pickle
+from typing import Dict, List, Optional
 
 import einops
 import torch
 import torch.nn.functional as F
 
 from common import LossValue
+from config import BaseConfig
 from loss import FeatureExtractor, MattingLaplacian, StyleLoss
 from trainers.base import Trainer
 import utils
@@ -16,41 +15,23 @@ import utils
 class StyleTrainer(Trainer):
     def __init__(
         self,
-        args: Namespace,
-        nargs: List[str]
+        cfg: BaseConfig,
+        nargs: List[str],
+        trainer: Optional[Trainer] = None
     ) -> None:
         """
         Volumetric rendering trainer for style transfer.
-
-        Args:
-            args (Namespace): Command line arguments.
-            nargs (List[str]): Overwritten config parameters.
         """
+        assert cfg.style_image is not None
         self.style_dims = (256, 256)
-        super().__init__(args, nargs)
+        super().__init__(cfg, nargs, trainer)
 
         # Intialize losses and style image
         self.fe = FeatureExtractor().to(self.device)
-        style_image_np = utils.parse_rgb(args.style_image, size=self.style_dims)
+        style_image_np = utils.parse_rgb(cfg.style_image, size=self.style_dims)
         self.style_image = torch.tensor(style_image_np, device=self.device)
         self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
         self.photo_loss = MattingLaplacian(device=self.device)
-
-    @classmethod
-    def load_ckpt(
-        cls,
-        ckpt_path: str
-    ) -> 'StyleTrainer':
-        with open(ckpt_path, 'rb') as f:
-            trainer: Trainer = pickle.load(f)
-        
-        if isinstance(trainer, StyleTrainer):
-            # TODO: continue training
-            raise NotImplementedError('not implemented yet')
-        elif isinstance(trainer, Trainer):
-            raise NotImplementedError('sfsg')
-        else:
-            raise ValueError('Unpickled object is not trainer!')
 
     def calc_loss(
         self,

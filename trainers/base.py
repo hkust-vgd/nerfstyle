@@ -26,13 +26,14 @@ import utils
 class Trainer:
     SAVE_KEYS = [
         'version', 'name', 'model', 'renderer',
-        'dataset_cfg', 'train_cfg'
+        'dataset_cfg', 'train_cfg', 'net_cfg', 'render_cfg'
     ]
 
     def __init__(
         self,
         cfg: BaseConfig,
-        nargs: List[str]
+        nargs: List[str],
+        trainer: Optional['Trainer'] = None
     ) -> None:
         """
         Default volumetric rendering trainer.
@@ -40,9 +41,11 @@ class Trainer:
         Args:
             cfg (BaseConfig): Command line arguments.
             nargs (List[str]): Overwritten config parameters.
+            model (Optional[TCNerf], optional): Existing model. Defaults to None.
+            renderer (Optional[Renderer], optional): Existing renderer. Defaults to None.
         """
         self.logger = utils.create_logger(__name__)
-        if cfg.data_cfg is None:
+        if (cfg.data_cfg is None) and (cfg.ckpt is None):
             self.logger.error('Data config must be provided if training from scratch')
 
         self.iter_ctr = 0
@@ -70,17 +73,27 @@ class Trainer:
                 sys.exit(1)
 
         # Parse arguments
-        self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg, nargs=nargs)
-        self.train_cfg, nargs = TrainConfig.load_nargs(nargs=nargs)
-        self.net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
+        if trainer is None:
+            self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg, nargs=nargs)
+            self.train_cfg, nargs = TrainConfig.load_nargs(nargs=nargs)
+            self.net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
 
-        render_cfg_path = Path('cfgs/renderer/{}.yaml'.format(self.dataset_cfg.type.lower()))
-        if not render_cfg_path.exists():
-            render_cfg_path = None
-        self.render_cfg, nargs = RendererConfig.load_nargs(render_cfg_path, nargs=nargs)
+            render_cfg_path = Path('cfgs/renderer/{}.yaml'.format(self.dataset_cfg.type.lower()))
+            if not render_cfg_path.exists():
+                render_cfg_path = None
+            self.render_cfg, nargs = RendererConfig.load_nargs(render_cfg_path, nargs=nargs)
 
-        if len(nargs) > 0:
-            self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
+            if len(nargs) > 0:
+                self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
+        else:
+            self.dataset_cfg = trainer.dataset_cfg
+            self.train_cfg = trainer.train_cfg
+            self.net_cfg = trainer.net_cfg
+            self.render_cfg = trainer.render_cfg
+
+            # TODO: Overwrite with new parameters
+            if cfg.data_cfg is not None:
+                self.logger.warning('Overwriting functionality not yet implemented')
 
         self.device = torch.device('cuda:0')
         nerf_lib.device = self.device
@@ -104,12 +117,22 @@ class Trainer:
         self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
 
-        # Initialize model
-        enc_dtype = None if self.train_cfg.enable_amp else torch.float32
-        self.model = TCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
+        # Initialize model and renderer
+        if trainer is None:
+            enc_dtype = None if self.train_cfg.enable_amp else torch.float32
+            self.model = TCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
 
-        self.model = self.model.to(self.device)
-        self.logger.info('Created model ' + str(type(self.model)))
+            self.model = self.model.to(self.device)
+            self.logger.info('Created model ' + str(type(self.model)))
+
+            self.renderer = Renderer(
+                self.model, self.render_cfg, self.train_set.intr, self.dataset_cfg.bound,
+                bg_color=self.dataset_cfg.bg_color,
+                precrop_frac=self.train_cfg.precrop_fraction
+            )
+        else:
+            self.model = trainer.model.to(self.device)
+            self.renderer = trainer.renderer.to(self.device)
 
         # Initialize optimizer and miscellaneous components
 
@@ -136,13 +159,6 @@ class Trainer:
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optim, lr_lambda)
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.train_cfg.enable_amp)
         self.ema = utils.EMA(train_params, decay=self.train_cfg.ema_decay)
-
-        # Initialize renderer
-        self.renderer = Renderer(
-            self.model, self.render_cfg, self.train_set.intr, self.dataset_cfg.bound,
-            bg_color=self.dataset_cfg.bg_color,
-            precrop_frac=self.train_cfg.precrop_fraction
-        )
 
     def __getstate__(self):
         state_dict = {k: v for k, v in self.__dict__.items() if k in self.SAVE_KEYS}
@@ -174,30 +190,6 @@ class Trainer:
         # TODO: infer params from saved optimizer
         self.ema = utils.EMA(self.model.parameters(), self.train_cfg.ema_decay)
         self.ema.load_state_dict(state_dict['ema'])
-
-    @classmethod
-    def load_ckpt(
-        cls,
-        ckpt_path: str
-    ) -> 'Trainer':
-        """
-        Initialize and return new trainer from existing checkpoint.
-
-        Args:
-            ckpt_path (str): Path to checkpoint.
-
-        Returns:
-            Trainer: Initialized trainer.
-        """
-        with open(ckpt_path, 'rb') as f:
-            trainer: Trainer = pickle.load(f)
-
-        trainer.device = torch.device('cuda:0')  # hard code for now
-        trainer.model.to(trainer.device)
-        trainer.renderer.to(trainer.device)
-        trainer.logger.info('Loaded checkpoint \"{}\"'.format(ckpt_path))
-
-        return trainer
 
     def save_ckpt(self) -> None:
         """
