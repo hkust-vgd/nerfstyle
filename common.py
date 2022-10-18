@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional, TypeVar, Union
 
 import numpy as np
@@ -11,6 +12,12 @@ import utils
 
 T = TypeVar('T')
 patch_typeguard()
+
+
+class DatasetSplit(Enum):
+    TRAIN = 0
+    VAL = 1
+    TEST = 2
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,7 @@ class NSVFDataset(BaseDataset):
         pose_dir = root / 'pose'
         intrinsics_path = root / 'intrinsics.txt'
 
-        split_prefix = 0 if self.is_train else 2
+        split_prefix = str(self.split.value)
         self.rgb_paths = sorted(rgb_dir.glob('{}_*.png'.format(split_prefix)))
         self.pose_paths = sorted(pose_dir.glob('{}_*.txt'.format(split_prefix)))
         assert len(self.rgb_paths) == len(self.pose_paths)

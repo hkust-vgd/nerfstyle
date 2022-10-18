@@ -3,7 +3,7 @@ from typing import List, Optional
 import numpy as np
 from torch.utils.data import Dataset
 
-from common import Intrinsics, BBox
+from common import BBox, DatasetSplit, Intrinsics
 from config import DatasetConfig
 
 
@@ -31,7 +31,7 @@ class BaseDataset(Dataset, ABC):
     def __init__(
         self,
         cfg: DatasetConfig,
-        is_train: bool,
+        split: DatasetSplit,
         max_count: Optional[int] = None
     ):
         """
@@ -39,14 +39,14 @@ class BaseDataset(Dataset, ABC):
 
         Args:
             cfg (DatasetConfig): Config file.
-            is_train (bool): Selects train / test split to be loaded.
+            split (DatasetSplit): Selects train / test split to be loaded.
             max_count (Optional[int], optional): Select a subset of size N, picked uniformly \
                 over the list of images. If None, uses all images. Defaults to None.
         """
         super().__init__()
 
         self.cfg = cfg
-        self.is_train = is_train
+        self.split = split
         self.max_count = max_count
 
         assert self.cfg.root_path.exists(), 'Root path "{}" does not exist'.format(
@@ -83,5 +83,6 @@ class BaseDataset(Dataset, ABC):
         cls_name = self.__class__.__name__
         if name is None:
             name = self.cfg.root_path.stem
-        desc = '{} \"{}\" with {:d} entries'
-        return desc.format(cls_name, name, len(self))
+        desc = '{} \"{}\" {} split with {:d} entries'
+        split_str = ['train', 'validation', 'test'][self.split.value]
+        return desc.format(cls_name, name, split_str, len(self))

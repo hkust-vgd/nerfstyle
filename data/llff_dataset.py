@@ -1,6 +1,6 @@
 from typing import Optional
 import numpy as np
-from common import BBox, Intrinsics
+from common import BBox, DatasetSplit, Intrinsics
 from data.base_dataset import BaseDataset
 import utils
 
@@ -23,8 +23,9 @@ class LLFFDataset(BaseDataset):
             bd_factor (Optional[float], optional): Scale pose origin coords, such that the \
                 smallest near value is equal to this value.
         """
-
         super().__init__(*args)
+        if self.split == DatasetSplit.TEST:
+            raise NotImplementedError('LLFF test spiral not implemented yet')
 
         root = self.cfg.root_path
 
@@ -44,7 +45,8 @@ class LLFFDataset(BaseDataset):
             self.rgb_paths = [self.rgb_paths[i] for i in frame_ids]
             poses_bds = poses_bds[frame_ids]
 
-        split = utils.train_test_split(len(self.rgb_paths), eval_every, not self.is_train)
+        is_train = (self.split == DatasetSplit.TRAIN)
+        split = utils.train_test_split(len(self.rgb_paths), eval_every, is_train)
         self.rgb_paths = [self.rgb_paths[i] for i in split]
         poses_bds = poses_bds[split]
         self.frame_str_ids = [self.frame_str_ids[i] for i in split]

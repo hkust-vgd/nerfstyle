@@ -9,10 +9,10 @@ from torch.utils.data import DataLoader
 import torchvision
 from tqdm import tqdm
 
-from config import BaseConfig
+from common import DatasetSplit
 from data import get_dataset
 from nerf_lib import nerf_lib
-from trainers.base import Trainer
+from trainers import unpickle_trainer
 import utils
 
 
@@ -34,7 +34,7 @@ def main():
     nerf_lib.device = device
 
     # Load renderer (with model)
-    ckpt_trainer = utils.unpickle_trainer(args.ckpt)
+    ckpt_trainer = unpickle_trainer(args.ckpt)
     renderer = ckpt_trainer.renderer
     ema = ckpt_trainer.ema
 
@@ -57,7 +57,8 @@ def main():
             sys.exit(1)
 
     # Setup dataset
-    test_set = get_dataset(ckpt_trainer.dataset_cfg, 'test', max_count=args.max_count)
+    test_set = get_dataset(
+        ckpt_trainer.dataset_cfg, split=DatasetSplit.TEST, max_count=args.max_count)
     test_loader = DataLoader(test_set, batch_size=None, shuffle=False)
     logger.info('Loaded ' + str(test_set))
 

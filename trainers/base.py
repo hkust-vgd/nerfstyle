@@ -14,7 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torchvision
 from tqdm import tqdm
 
-from common import LossValue
+from common import DatasetSplit, LossValue
 from config import BaseConfig, DatasetConfig, NetworkConfig, RendererConfig, TrainConfig
 from data import get_dataset
 from nerf_lib import nerf_lib
@@ -107,12 +107,12 @@ class Trainer:
         torch.cuda.manual_seed(self.train_cfg.rng_seed)
 
         # Initialize dataset
-        self.train_set = get_dataset(self.dataset_cfg, is_train=True)
+        self.train_set = get_dataset(self.dataset_cfg, split=DatasetSplit.TRAIN)
         self.train_set.bbox = self.train_set.bbox.to(self.device)
         self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = get_dataset(self.dataset_cfg, is_train=False,
+        self.test_set = get_dataset(self.dataset_cfg, split=DatasetSplit.VAL,
                                     max_count=self.train_cfg.max_eval_count)
         self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))

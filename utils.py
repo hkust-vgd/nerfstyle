@@ -407,8 +407,8 @@ def to_device(old_dict: Dict[str, torch.Tensor], device: str):
     return new_dict
 
 
-def train_test_split(total: int, split_every: int, is_test: bool) -> List[int]:
-    ids = [i for i in np.arange(total) if (i % split_every == 0) == is_test]
+def train_test_split(total: int, split_every: int, is_train: bool) -> List[int]:
+    ids = [i for i in np.arange(total) if (i % split_every == 0) != is_train]
     return ids
 
 
