@@ -358,6 +358,9 @@ class TrainConfig(Config):
     num_rays_per_batch: int
     """No. of rays to sample for each training iteration."""
 
+    defer_patch_size: int
+    """Patch side length to use during deferred backpropagation for full-image losses."""
+
     precrop_iterations: int
     """Perform cropping for this number of iterations."""
 

@@ -53,7 +53,6 @@ def get_trainer(
         trainer = module_ctor(cfg, nargs, ckpt_trainer)
         trainer.logger.info('Initialized new {} from checkpoint \"{}\"'.format(
             class_name, cfg.ckpt))
-        raise NotImplementedError('sfsg')
         return trainer
 
     # (3) Continue training from existing checkpoint

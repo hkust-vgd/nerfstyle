@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.utils.cpp_extension import load
 from torchtyping import TensorType
 
-from common import Intrinsics, RayBatch
+from common import Box2D, Intrinsics, RayBatch
 import utils
 
 
@@ -72,6 +72,7 @@ class NerfLib:
         pose: TensorType[4, 4],
         intr: Intrinsics,
         img: Optional[TensorType['H', 'W', 3]] = None,
+        patch: Optional[Box2D] = None,
         precrop: float = 1.,
         bsize: Optional[int] = None,
         camera_flip: int = 0
@@ -90,10 +91,11 @@ class NerfLib:
             target (Optional[TensorType['K', 3]]): Pixel values corresponding to rays.
         """
         assert (precrop >= 0.) and (precrop <= 1.)
+        assert (precrop >= 1.) or (patch is None), 'Using both precrop and patch is not supported'
         target = None
 
         # Symmetric samples in pixel coords system: [0.5, 1.5, 2.5, ...]
-        fh, fw = intr.h, intr.w
+        fw, fh = intr.size()
         x_coords = np.linspace(0, fw, num=2*fw+1, dtype=np.float32)[1::2]
         y_coords = np.linspace(0, fh, num=2*fh+1, dtype=np.float32)[1::2]
 
@@ -105,6 +107,10 @@ class NerfLib:
             w, h = int(intr.w * precrop), int(intr.h * precrop)
             dx, dy = (intr.w - w) // 2, (intr.h - h) // 2
             x_coords, y_coords = x_coords[dx:dx+w], y_coords[dy:dy+h]
+
+        if patch is not None:
+            x_coords = x_coords[patch.wrange()]
+            y_coords = y_coords[patch.hrange()]
 
         i, j = np.meshgrid(x_coords, y_coords, indexing='xy')
         k = np.ones_like(i)

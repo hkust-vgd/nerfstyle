@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, TypeVar, Union
+from typing import Optional, Tuple, TypeVar, Union
 
 import numpy as np
 import torch
@@ -18,6 +18,22 @@ class DatasetSplit(Enum):
     TRAIN = 0
     VAL = 1
     TEST = 2
+
+
+@dataclass(frozen=True)
+class Box2D:
+    """2D bounding box."""
+
+    x: int
+    y: int
+    w: int
+    h: int
+
+    def wrange(self):
+        return slice(self.x, self.x + self.w)
+
+    def hrange(self):
+        return slice(self.y, self.y + self.h)
 
 
 @dataclass(frozen=True)
@@ -46,6 +62,15 @@ class Intrinsics:
         # Enforce integer types
         object.__setattr__(self, 'h', int(self.h))
         object.__setattr__(self, 'w', int(self.w))
+
+    def size(self) -> Tuple[int, int]:
+        """
+        Returns the frame dimensions.
+
+        Returns:
+            Tuple[int, int]: Tuple (width, height).
+        """
+        return self.w, self.h
 
     def scale(self, w: int, h: int) -> Intrinsics:
         """

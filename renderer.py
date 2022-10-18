@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 from torchtyping import TensorType
 
-from common import Intrinsics, RayBatch, TensorModule
+from common import Box2D, Intrinsics, RayBatch, TensorModule
 from config import RendererConfig
 from nerf_lib import nerf_lib
 from networks.nerf import Nerf
@@ -259,6 +259,7 @@ class Renderer(TensorModule):
         self: T,
         pose: TensorType[4, 4],
         img: Optional[TensorType['H', 'W', 3]] = None,
+        patch: Optional[Box2D] = None,
         num_rays: Optional[int] = None,
         training: bool = False
     ) -> Dict[str, torch.Tensor]:
@@ -266,7 +267,7 @@ class Renderer(TensorModule):
 
         precrop_frac = self.precrop_frac if self._use_precrop else 1.
         rays, output['target'] = nerf_lib.generate_rays(
-            pose, self.intr, img, precrop=precrop_frac,
+            pose, self.intr, img, patch=patch, precrop=precrop_frac,
             bsize=num_rays, camera_flip=self.cfg.flip_camera)
 
         render_fn = self.render_train if training else self.render_test

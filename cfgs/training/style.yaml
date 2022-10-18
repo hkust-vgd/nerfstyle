@@ -1,0 +1,8 @@
+learning_rate_decay: 5000
+num_iterations: 5000
+test_before_train: true
+intervals:
+  print: 5
+  log: 1
+  ckpt: 100
+  test: 100

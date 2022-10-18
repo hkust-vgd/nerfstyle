@@ -64,7 +64,7 @@ def main():
 
     # Modify camera parameters if needed
     if args.out_dims is None:
-        W, H = renderer.intr.w, renderer.intr.h
+        W, H = renderer.intr.size()
     else:
         W, H = args.out_dims
         renderer.intr = renderer.intr.scale(W, H)

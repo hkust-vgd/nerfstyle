@@ -1,7 +1,5 @@
-from copy import copy
 from pathlib import Path
 import pickle
-from re import M
 import sys
 import time
 from typing import Callable, Dict, List, Optional
@@ -75,25 +73,24 @@ class Trainer:
         # Parse arguments
         if trainer is None:
             self.dataset_cfg, nargs = DatasetConfig.load_nargs(cfg.data_cfg, nargs=nargs)
-            self.train_cfg, nargs = TrainConfig.load_nargs(nargs=nargs)
-            self.net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
-
-            render_cfg_path = Path('cfgs/renderer/{}.yaml'.format(self.dataset_cfg.type.lower()))
-            if not render_cfg_path.exists():
-                render_cfg_path = None
-            self.render_cfg, nargs = RendererConfig.load_nargs(render_cfg_path, nargs=nargs)
-
-            if len(nargs) > 0:
-                self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
         else:
             self.dataset_cfg = trainer.dataset_cfg
-            self.train_cfg = trainer.train_cfg
-            self.net_cfg = trainer.net_cfg
-            self.render_cfg = trainer.render_cfg
 
             # TODO: Overwrite with new parameters
             if cfg.data_cfg is not None:
                 self.logger.warning('Overwriting functionality not yet implemented')
+
+        train_cfg_path = 'cfgs/training/style.yaml' if cfg.style_image is not None else None
+        render_cfg_path = Path('cfgs/renderer/{}.yaml'.format(self.dataset_cfg.type.lower()))
+        if not render_cfg_path.exists():
+            render_cfg_path = None
+
+        self.train_cfg, nargs = TrainConfig.load_nargs(train_cfg_path, nargs=nargs)
+        self.net_cfg, nargs = NetworkConfig.load_nargs(nargs=nargs)
+        self.render_cfg, nargs = RendererConfig.load_nargs(render_cfg_path, nargs=nargs)
+
+        if len(nargs) > 0:
+            self.logger.error('Unrecognized arguments: ' + ' '.join(nargs))
 
         self.device = torch.device('cuda:0')
         nerf_lib.device = self.device
@@ -135,15 +132,13 @@ class Trainer:
             self.renderer = trainer.renderer.to(self.device)
 
         # Initialize optimizer and miscellaneous components
+        keywords = ['embedder']
 
-        # train_keys = None
-        # def trainable(key: str) -> bool:
-        #     if train_keys is None:
-        #         return True
-        #     return any([(k in key) for k in train_keys])
-
-        # train_params = [p for n, p in self.model.named_parameters() if trainable(n)]
-        train_params = list(self.model.parameters())
+        train_keys, train_params = [], []
+        for n, p in self.model.named_parameters():
+            if keywords is None or any([(kw in n) for kw in keywords]):
+                train_keys.append(n)
+                train_params.append(p)
 
         self.optim = torch.optim.Adam(
             params=train_params,
@@ -314,12 +309,12 @@ class Trainer:
             save_path = img_dir / 'frame_{}.png'.format(frame_id)
             torchvision.utils.save_image(rgb_output, save_path)
 
-            eval_losses.append(self.calc_loss(output, mse_only=True))
+            eval_losses.append(self.calc_loss(output))
 
-        avg_loss = copy(eval_losses[0])
-        avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
-        avg_loss['psnr'].value = utils.compute_psnr(avg_loss['mse'].value)
-        self.print_status(avg_loss, phase='TEST')
+        # avg_loss = copy(eval_losses[0])
+        # avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
+        # avg_loss['psnr'].value = utils.compute_psnr(avg_loss['mse'].value)
+        # self.print_status(avg_loss, phase='TEST')
 
     def _check_interval(self, interval, after=0, final=False):
         if interval <= 0:
