@@ -1,80 +1,56 @@
-from functools import partial
+from einops import rearrange
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torchtyping import TensorType, patch_typeguard
-import torchvision
-from torchvision.models.feature_extraction import create_feature_extractor
-from typeguard import typechecked
-
-patch_typeguard()
+from typing import Dict, List
 
 
-@typechecked
-def gram_mtx(
-    feats: TensorType['C', 'H', 'W']
-):
-    c, h, w = feats.shape
-    flat_feats = feats.view(c, h * w)
-    gram_mtx = torch.mm(flat_feats, flat_feats.t())
-    return gram_mtx.div(h * w)
-
-
-class FeatureExtractor(nn.Module):
-    def __init__(
-        self,
-        net_type: str = 'vgg19'
-    ) -> None:
+class GramStyleLoss(nn.Module):
+    def __init__(self, keys: List[str]) -> None:
         super().__init__()
+        self.keys = keys
 
-        if net_type == 'vgg16':
-            net_fn = partial(torchvision.models.vgg16, weights='DEFAULT')
-            extract_layers = [3, 8, 15, 22, 29]
-        elif net_type == 'vgg19':
-            net_fn = partial(torchvision.models.vgg19, weights='DEFAULT')
-            extract_layers = [3, 8, 17, 26, 35]
-        else:
-            raise NotImplementedError('Unrecognized net type "{}"'.format(net_type))
+    @staticmethod
+    def _gram_mtx(feats: torch.Tensor):
+        H, W = feats.shape[-2:]
+        feats = rearrange(feats, pattern='n c h w -> n c (h w)')
+        mtx = torch.matmul(feats, feats.transpose(-2, -1)) / (H * W)
+        return mtx
 
-        net = net_fn().features.eval()
-        self.net = create_feature_extractor(
-            net, return_nodes={str(k): f'layer{i}' for i, k in enumerate(extract_layers)})
-
-        self.register_buffer('mean', torch.Tensor([0.485, 0.456, 0.406])[:, None, None])
-        self.register_buffer('std', torch.Tensor([0.229, 0.224, 0.225])[:, None, None])
-
-    @typechecked
+    @torch.cuda.amp.autocast(dtype=torch.float32)
     def forward(
         self,
-        x: TensorType[3, 'H', 'W'],
-        detach: bool = False
-    ) -> dict:
-        x_norm = (x - self.mean) / self.std
-        feats_dict = self.net(x_norm.unsqueeze(0))
-        for k in feats_dict.keys():
-            feats_dict[k] = feats_dict[k].squeeze(0)
-            if detach:
-                feats_dict[k] = feats_dict[k].detach()
-
-        return feats_dict
+        feats1: Dict[str, torch.Tensor],
+        feats2: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        matrices1 = [self._gram_mtx(feats1[k]) for k in self.keys]
+        matrices2 = [self._gram_mtx(feats2[k]) for k in self.keys]
+        losses = torch.stack([F.mse_loss(m1, m2) for m1, m2 in zip(matrices1, matrices2)])
+        return torch.sum(losses)
 
 
-class StyleLoss(nn.Module):
-    def __init__(
-        self,
-        target_feats: dict
-    ) -> None:
+class AdaINStyleLoss(nn.Module):
+    def __init__(self, keys: List[str]) -> None:
         super().__init__()
-        self.keys = list(target_feats.keys())
-        self.matrices = {k: gram_mtx(v) for k, v in target_feats.items()}
+        self.keys = keys
 
+    @staticmethod
+    def _mean(feats: torch.Tensor):
+        return feats.mean(dim=(-2, -1))
+
+    @staticmethod
+    def _std(feats: torch.Tensor):
+        return feats.var(dim=(-2, -1)).sqrt()
+
+    @torch.cuda.amp.autocast(dtype=torch.float32)
     def forward(
         self,
-        feats: dict
-    ) -> TensorType[()]:
-        assert list(feats.keys()) == self.keys
-        matrices = {k: gram_mtx(v) for k, v in feats.items()}
-        losses = torch.stack([F.mse_loss(self.matrices[k], matrices[k]) for k in self.keys])
+        feats1: Dict[str, torch.Tensor],
+        feats2: Dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        mean_l2 = [F.mse_loss(self._mean(feats1[k]), self._mean(feats2[k])) for k in self.keys]
+        std_l2 = [F.mse_loss(self._std(feats1[k]), self._std(feats2[k])) for k in self.keys]
+        losses = torch.stack([m + s for m, s in zip(mean_l2, std_l2)])
         return torch.sum(losses)
 
 
@@ -92,7 +68,7 @@ class MattingLaplacian(nn.Module):
 
     def _compute_laplacian(
         self,
-        image: TensorType[3, 'H', 'W']
+        image: torch.Tensor
     ) -> torch.Tensor:
         # Reference numpy implementation:
         # https://github.com/MarcoForte/closed-form-matting
@@ -129,12 +105,11 @@ class MattingLaplacian(nn.Module):
         L = torch.sparse_coo_tensor(indices=nz_inds, values=nz_indsVal, size=(h * w, h * w))
         return L
 
-    @typechecked
     def forward(
         self,
-        target: TensorType[3, 'H', 'W'],
-        style_map: TensorType[3, 'H', 'W']
-    ) -> TensorType[()]:
+        target: torch.Tensor,
+        style_map: torch.Tensor
+    ) -> torch.Tensor:
         style_map = style_map.to(dtype=torch.float64)
         target = target.to(dtype=torch.float64)
         M = self._compute_laplacian(target)  # (HW, HW)

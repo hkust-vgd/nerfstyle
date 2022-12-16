@@ -6,10 +6,13 @@ import time
 import einops
 import torch
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
-from common import Box2D, LossValue
+from common import Box2D, DatasetSplit, LossValue
 from config import BaseConfig
-from loss import FeatureExtractor, MattingLaplacian, StyleLoss
+from data.style_dataset import WikiartDataset
+from loss import AdaINStyleLoss, MattingLaplacian
+from networks.fx import VGG16FeatureExtractor
 from trainers.base import Trainer
 import utils
 
@@ -28,15 +31,21 @@ class StyleTrainer(Trainer):
         super().__init__(cfg, nargs, trainer)
 
         # Intialize losses and style image
-        self.fe = FeatureExtractor().to(self.device)
-        style_image_np = utils.parse_rgb(cfg.style_image, size=self.train_set.intr.size())
-        self.style_image = torch.tensor(style_image_np, device=self.device)
-        self.style_loss = StyleLoss(self.fe(self.style_image, detach=True))
+        fx_keys = ['relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1']
+        self.fx = VGG16FeatureExtractor(fx_keys).to(self.device)
+        self.style_loss = AdaINStyleLoss(fx_keys)
         self.photo_loss = MattingLaplacian(device=self.device)
+
+        root_path = 'datasets/wikiart'
+        test_id = 12345
+        self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, fix_id=test_id)
+        self.style_train_loader = utils.cycle(DataLoader(
+            self.style_train_set, batch_size=1, shuffle=True))
 
     def calc_loss(
         self,
-        output: Dict[str, torch.Tensor]
+        output: Dict[str, torch.Tensor],
+        style_img: torch.Tensor
     ) -> Dict[str, LossValue]:
         assert output['target'] is not None
 
@@ -45,11 +54,12 @@ class StyleTrainer(Trainer):
         rgb_map_chw = nc2chw(output['rgb_map'])
         target_chw = nc2chw(output['target'])
 
-        rgb_feats = self.fe(rgb_map_chw)
-        target_feats = self.fe(target_chw)
+        rgb_feats = self.fx(rgb_map_chw)
+        target_feats = self.fx(target_chw)
+        style_feats = self.fx(style_img)
 
-        content_loss = F.mse_loss(rgb_feats['layer3'], target_feats['layer3'])
-        style_loss = self.style_loss(rgb_feats)
+        content_loss = F.mse_loss(rgb_feats['relu3_1'], target_feats['relu3_1'])
+        style_loss = self.style_loss(rgb_feats, style_feats)
         photo_loss = self.photo_loss(target_chw, rgb_map_chw)
 
         content_loss *= self.train_cfg.content_lambda
@@ -73,6 +83,7 @@ class StyleTrainer(Trainer):
         self.time0 = time.time()
         img, pose = next(self.train_loader)
         img, pose = img.to(self.device), pose.to(self.device)
+        style_img = next(self.style_train_loader).to(self.device)
         W, H = self.train_set.intr.size()
 
         self.renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
@@ -85,7 +96,7 @@ class StyleTrainer(Trainer):
 
         # Compute d_loss / d_pixels and cache
         output['rgb_map'].requires_grad = True
-        losses = self.calc_loss(output)
+        losses = self.calc_loss(output, style_img)
         back_loss = losses['total' if 'total' in losses.keys() else 'mse'].value
         self.scaler.scale(back_loss).backward()
         grad_map = einops.rearrange(output['rgb_map'].grad, '(h w) c -> h w c', h=H, w=W)

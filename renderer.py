@@ -9,7 +9,7 @@ from torchtyping import TensorType
 from common import Box2D, Intrinsics, RayBatch, TensorModule
 from config import RendererConfig
 from nerf_lib import nerf_lib
-from networks.nerf import Nerf
+from networks.tcnn_nerf import TCNerf
 import raymarching
 import utils
 
@@ -28,7 +28,7 @@ def custom_meshgrid(*args):
 class Renderer(TensorModule):
     def __init__(
         self: T,
-        model: Nerf,
+        model: TCNerf,
         cfg: RendererConfig,
         intr: Intrinsics,
         bound: float,
@@ -40,7 +40,7 @@ class Renderer(TensorModule):
         NeRF renderer.
 
         Args:
-            model (Nerf): Backbone model. Renderer is set to model device during init.
+            model (TCNerf): Backbone model. Renderer is set to model device during init.
             net_cfg (NetworkConfig): Network configuration.
             intr (Intrinsics): Render camera intrinsics.
             bg_color (str): Background color.

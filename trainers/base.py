@@ -295,7 +295,7 @@ class Trainer:
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         img_dir.mkdir()
 
-        eval_losses: List[Dict[str, LossValue]] = []
+        # eval_losses: List[Dict[str, LossValue]] = []
 
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.frame_str_ids[i]
@@ -309,7 +309,7 @@ class Trainer:
             save_path = img_dir / 'frame_{}.png'.format(frame_id)
             torchvision.utils.save_image(rgb_output, save_path)
 
-            eval_losses.append(self.calc_loss(output))
+            # eval_losses.append(self.calc_loss(output))
 
         # avg_loss = copy(eval_losses[0])
         # avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
