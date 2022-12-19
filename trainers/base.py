@@ -132,13 +132,23 @@ class Trainer:
             self.renderer = trainer.renderer.to(self.device)
 
         # Initialize optimizer and miscellaneous components
-        keywords = ['embedder']
+        self._reset_optim(['embedder'])
 
+    def _reset_optim(self, keywords=None):
+        all_keys = [n for n, _ in self.model.named_parameters()]
         train_keys, train_params = [], []
         for n, p in self.model.named_parameters():
             if keywords is None or any([(kw in n) for kw in keywords]):
                 train_keys.append(n)
                 train_params.append(p)
+        if len(train_keys) == 0:
+            self.logger.error('Keywords {} not found in keys {}'.format(
+                keywords, all_keys))
+
+        param_count = np.sum(np.prod(p.size()) for p in train_params)
+        msg = 'Optimizing {:d} parameters from '.format(param_count)
+        msg += ('all components' if keywords is None else 'components ' + str(keywords))
+        self.logger.info(msg)
 
         self.optim = torch.optim.Adam(
             params=train_params,

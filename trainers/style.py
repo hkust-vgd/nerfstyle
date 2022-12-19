@@ -12,6 +12,7 @@ from common import Box2D, DatasetSplit, LossValue
 from config import BaseConfig
 from data.style_dataset import WikiartDataset
 from loss import AdaINStyleLoss, MattingLaplacian
+from networks.style_nerf import StyleNerf
 from networks.fx import VGG16FeatureExtractor
 from trainers.base import Trainer
 import utils
@@ -41,6 +42,12 @@ class StyleTrainer(Trainer):
         self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, fix_id=test_id)
         self.style_train_loader = utils.cycle(DataLoader(
             self.style_train_set, batch_size=1, shuffle=True))
+
+        # New model
+        self.model = StyleNerf(self.model)
+        self.model.cuda()
+        self.renderer.model = self.model
+        self._reset_optim(['s_embedder'])
 
     def calc_loss(
         self,
@@ -92,7 +99,7 @@ class StyleTrainer(Trainer):
         # First pass: render all pixels without gradients
         with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
             with torch.no_grad():
-                output = self.renderer.render(pose, img, training=False)
+                output = self.renderer.render(pose, img, style_img)
 
         # Compute d_loss / d_pixels and cache
         output['rgb_map'].requires_grad = True
@@ -106,7 +113,7 @@ class StyleTrainer(Trainer):
         for x, y in product(range(0, W, ps), range(0, H, ps)):
             patch = Box2D(x=x, y=y, w=ps, h=ps)
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
-                patch_output = self.renderer.render(pose, img, patch=patch, training=True)
+                patch_output = self.renderer.render(pose, img, style_img, patch=patch)
 
             # Backprop cached grads to network
             patch_grad = grad_map[patch.hrange(), patch.wrange()].reshape(-1, 3)

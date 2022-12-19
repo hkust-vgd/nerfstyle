@@ -255,10 +255,35 @@ class Renderer(TensorModule):
 
         return image, depth
 
+    def render_style(
+        self,
+        rays: RayBatch,
+        style_image,
+        max_num_samples: int = 80
+    ):
+        nears, fars = raymarching.near_far_from_aabb(
+            rays.origins, rays.dirs, self.aabb, self.cfg.min_near)
+        tmp_counter = torch.zeros(2).to(self.step_counter)
+
+        xyzs, _, deltas, rays_info = raymarching.march_rays_train(
+            rays.origins, rays.dirs, None, self.bound, self.density_bitfield,
+            self.cascade, self.cfg.grid_size, nears, fars, tmp_counter, self.mean_count,
+            True, 128, True, 0., max_num_samples, False)
+
+        rgbs, sigmas = self.model(xyzs, None)
+        sigmas = sigmas * self.cfg.density_scale
+
+        _, depth, image = raymarching.composite_rays_train(
+            sigmas, rgbs, deltas, rays_info, self.cfg.t_thresh, False)
+
+        # spatial attn here
+        return image, depth
+
     def render(
         self: T,
         pose: TensorType[4, 4],
-        img: Optional[TensorType['H', 'W', 3]] = None,
+        image: Optional[TensorType['H', 'W', 3]] = None,
+        style_image: Optional[TensorType['H', 'W', 3]] = None,
         patch: Optional[Box2D] = None,
         num_rays: Optional[int] = None,
         training: bool = False
@@ -267,9 +292,12 @@ class Renderer(TensorModule):
 
         precrop_frac = self.precrop_frac if self._use_precrop else 1.
         rays, output['target'] = nerf_lib.generate_rays(
-            pose, self.intr, img, patch=patch, precrop=precrop_frac,
+            pose, self.intr, image, patch=patch, precrop=precrop_frac,
             bsize=num_rays, camera_flip=self.cfg.flip_camera)
 
-        render_fn = self.render_train if training else self.render_test
-        output['rgb_map'], output['trans_map'] = render_fn(rays)
+        if style_image is not None:
+            output['rgb_map'], output['trans_map'] = self.render_style(rays, style_image)
+        else:
+            render_fn = self.render_train if training else self.render_test
+            output['rgb_map'], output['trans_map'] = render_fn(rays)
         return output
