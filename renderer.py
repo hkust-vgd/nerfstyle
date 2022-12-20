@@ -1,5 +1,6 @@
 import itertools
 from math import *
+from einops import rearrange
 from packaging import version as pver
 from typing import Dict, Optional, Tuple, TypeVar
 import torch
@@ -273,11 +274,18 @@ class Renderer(TensorModule):
         rgbs, sigmas = self.model(xyzs, None)
         sigmas = sigmas * self.cfg.density_scale
 
-        _, depth, image = raymarching.composite_rays_train(
+        weights_sum, _, pix_feats = raymarching.composite_rays_train(
             sigmas, rgbs, deltas, rays_info, self.cfg.t_thresh, False)
 
-        # spatial attn here
-        return image, depth
+        pix_feats = pix_feats + (1 - weights_sum).unsqueeze(-1)
+        return pix_feats
+
+        # # spatial attn here
+        # H, W = style_image.shape[-2:]
+        # pix_feats = rearrange(pix_feats, pattern='(h w) c -> c h w', h=H, w=W)
+        # pix_feats = self.model.spatial_attn(pix_feats, style_image)
+        # image = self.model.final(pix_feats)
+        # return image, depth
 
     def render(
         self: T,
@@ -286,7 +294,8 @@ class Renderer(TensorModule):
         style_image: Optional[TensorType['H', 'W', 3]] = None,
         patch: Optional[Box2D] = None,
         num_rays: Optional[int] = None,
-        training: bool = False
+        training: bool = False,
+        max_num_samples: int = 80
     ) -> Dict[str, torch.Tensor]:
         output = {}
 
@@ -296,7 +305,8 @@ class Renderer(TensorModule):
             bsize=num_rays, camera_flip=self.cfg.flip_camera)
 
         if style_image is not None:
-            output['rgb_map'], output['trans_map'] = self.render_style(rays, style_image)
+            output['rgb_map'] = self.render_style(
+                rays, style_image, max_num_samples=max_num_samples)
         else:
             render_fn = self.render_train if training else self.render_test
             output['rgb_map'], output['trans_map'] = render_fn(rays)

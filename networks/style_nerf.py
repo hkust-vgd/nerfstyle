@@ -4,6 +4,7 @@ import torch
 import tinycudann as tcnn
 
 from common import TensorModule
+from networks.attn import AttentionPyramid
 from networks.tcnn_nerf import TCNerf, trunc_exp
 
 
@@ -33,24 +34,10 @@ class StyleNerf(TensorModule):
             },
             seed=self.cfg.network_seed
         )
+        # self.spatial_attn = AttentionPyramid(input_channels=3, h=800, w=800)
+        # self.final_fc = torch.nn.Conv2d(64, 3, kernel_size=1)
 
-    # def encode(self, pts):
-    #     pts = self.bounds_bbox.normalize(pts)
-    #     embedded = self.s_embedder(pts)
-    #     return embedded.float()
-
-    # def density(self, pts):
-    #     pts = self.bounds_bbox.normalize(pts)
-    #     embedded = self.x_embedder(pts)
-    #     density_output = self.density_net(embedded)
-    #     sigmas = trunc_exp(density_output[:, 0:1])
-    #     return sigmas.float()
-
-    # def color(self, feats):
-    #     out = self.final_fc(feats)
-    #     return torch.sigmoid(out)
-
-    def forward(self, pts, dirs):
+    def forward(self, pts, _):
         pts = self.bounds_bbox.normalize(pts)
         x_embedded = self.x_embedder(pts)
         density_output = self.density_net(x_embedded)
@@ -60,3 +47,7 @@ class StyleNerf(TensorModule):
         rgb_input = torch.cat((density_output[:, 1:], s_embedded), dim=-1)
         rgbs = self.rgb_net(rgb_input)
         return rgbs, sigmas
+
+    def final(self, feats):
+        out = self.final_fc(feats)
+        return torch.sigmoid(out)

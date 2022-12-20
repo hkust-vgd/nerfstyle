@@ -7,6 +7,8 @@ import einops
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+import torchvision
+from tqdm import tqdm
 
 from common import Box2D, DatasetSplit, LossValue
 from config import BaseConfig
@@ -47,7 +49,7 @@ class StyleTrainer(Trainer):
         self.model = StyleNerf(self.model)
         self.model.cuda()
         self.renderer.model = self.model
-        self._reset_optim(['s_embedder'])
+        self._reset_optim(['s_embedder', 'rgb'])  # , 'spatial', 'final'])
 
     def calc_loss(
         self,
@@ -82,6 +84,28 @@ class StyleTrainer(Trainer):
 
         losses['total'] = LossValue('Total', 'total_loss', total_loss)
         return losses
+
+    @torch.no_grad()
+    def test_networks(self):
+        """
+        Render and evaluate images from test set.
+        """
+        image_dir = self.log_dir / 'epoch_{:0{width}d}'.format(
+            self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
+        image_dir.mkdir()
+
+        for i, (image, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
+            frame_id = self.test_set.frame_str_ids[i]
+            image, pose = image.to(self.device), pose.to(self.device)
+            style_images = next(self.style_train_loader).cuda()
+            with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
+                with self.ema.average_parameters():
+                    output = self.renderer.render(pose, image, style_images, max_num_samples=384)
+
+            _, h, w = image.shape
+            rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
+            save_path = image_dir / 'frame_{}.png'.format(frame_id)
+            torchvision.utils.save_image(rgb_output, save_path)
 
     def run_iter(self):
         """
