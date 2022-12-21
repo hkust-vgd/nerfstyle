@@ -16,6 +16,7 @@ from data.style_dataset import WikiartDataset
 from loss import AdaINStyleLoss, MattingLaplacian
 from networks.style_nerf import StyleNerf
 from networks.fx import VGG16FeatureExtractor
+from renderer import StyleRenderer
 from trainers.base import Trainer
 import utils
 
@@ -48,8 +49,8 @@ class StyleTrainer(Trainer):
         # New model
         self.model = StyleNerf(self.model)
         self.model.cuda()
-        self.renderer.model = self.model
         self._reset_optim(['s_embedder', 'rgb'])  # , 'spatial', 'final'])
+        self.renderer = StyleRenderer(self.model, self.renderer)
 
     def calc_loss(
         self,
@@ -100,21 +101,23 @@ class StyleTrainer(Trainer):
             style_images = next(self.style_train_loader).cuda()
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
                 with self.ema.average_parameters():
-                    output = self.renderer.render(pose, image, style_images, max_num_samples=384)
+                    output = self.renderer.render(pose, style_images, image, training=False)
 
             _, h, w = image.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
+            visuals = torch.cat((rgb_output.unsqueeze(0), style_images))
+            collage = torchvision.utils.make_grid(visuals, nrow=1, padding=0)
             save_path = image_dir / 'frame_{}.png'.format(frame_id)
-            torchvision.utils.save_image(rgb_output, save_path)
+            torchvision.utils.save_image(collage, save_path)
 
     def run_iter(self):
         """
         Run one training iteration.
         """
         self.time0 = time.time()
-        img, pose = next(self.train_loader)
-        img, pose = img.to(self.device), pose.to(self.device)
-        style_img = next(self.style_train_loader).to(self.device)
+        image, pose = next(self.train_loader)
+        image, pose = image.to(self.device), pose.to(self.device)
+        style_images = next(self.style_train_loader).to(self.device)
         W, H = self.train_set.intr.size()
 
         self.renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
@@ -123,11 +126,11 @@ class StyleTrainer(Trainer):
         # First pass: render all pixels without gradients
         with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
             with torch.no_grad():
-                output = self.renderer.render(pose, img, style_img)
+                output = self.renderer.render(pose, style_images, image)
 
         # Compute d_loss / d_pixels and cache
         output['rgb_map'].requires_grad = True
-        losses = self.calc_loss(output, style_img)
+        losses = self.calc_loss(output, style_images)
         back_loss = losses['total' if 'total' in losses.keys() else 'mse'].value
         self.scaler.scale(back_loss).backward()
         grad_map = einops.rearrange(output['rgb_map'].grad, '(h w) c -> h w c', h=H, w=W)
@@ -137,7 +140,7 @@ class StyleTrainer(Trainer):
         for x, y in product(range(0, W, ps), range(0, H, ps)):
             patch = Box2D(x=x, y=y, w=ps, h=ps)
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
-                patch_output = self.renderer.render(pose, img, style_img, patch=patch)
+                patch_output = self.renderer.render(pose, style_images, image, patch=patch)
 
             # Backprop cached grads to network
             patch_grad = grad_map[patch.hrange(), patch.wrange()].reshape(-1, 3)

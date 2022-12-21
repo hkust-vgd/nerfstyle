@@ -11,6 +11,7 @@ from common import Box2D, Intrinsics, RayBatch, TensorModule
 from config import RendererConfig
 from nerf_lib import nerf_lib
 from networks.tcnn_nerf import TCNerf
+from networks.style_nerf import StyleNerf
 import raymarching
 import utils
 
@@ -33,7 +34,7 @@ class Renderer(TensorModule):
         cfg: RendererConfig,
         intr: Intrinsics,
         bound: float,
-        bg_color: str,
+        # bg_color: str,
         name: str = 'Renderer',
         precrop_frac: float = 1.
     ) -> None:
@@ -44,7 +45,6 @@ class Renderer(TensorModule):
             model (TCNerf): Backbone model. Renderer is set to model device during init.
             net_cfg (NetworkConfig): Network configuration.
             intr (Intrinsics): Render camera intrinsics.
-            bg_color (str): Background color.
             name (str, optional): Logging name. Defaults to 'Renderer'.
             precrop_frac (float, optional): Cropping fraction. Defaults to 1.
             num_rays (Optional[int], optional): No. of rays to sample randomly. Defaults to None
@@ -58,7 +58,7 @@ class Renderer(TensorModule):
         self.intr = intr
         self._use_precrop = False
         self.precrop_frac = precrop_frac
-        self.bg_color = torch.tensor(utils.color_str2rgb(bg_color))
+        # self.bg_color = torch.tensor(utils.color_str2rgb(bg_color))
 
         # Raymarching variables
         self.bound = bound
@@ -256,6 +256,39 @@ class Renderer(TensorModule):
 
         return image, depth
 
+    def render(
+        self: T,
+        pose: TensorType[4, 4],
+        image: Optional[TensorType['H', 'W', 3]] = None,
+        patch: Optional[Box2D] = None,
+        num_rays: Optional[int] = None,
+        training: bool = False
+    ) -> Dict[str, torch.Tensor]:
+        output = {}
+
+        precrop_frac = self.precrop_frac if self._use_precrop else 1.
+        rays, output['target'] = nerf_lib.generate_rays(
+            pose, self.intr, image, patch=patch, precrop=precrop_frac,
+            bsize=num_rays, camera_flip=self.cfg.flip_camera)
+
+        render_fn = self.render_train if training else self.render_test
+        output['rgb_map'], output['trans_map'] = render_fn(rays)
+        return output
+
+
+class StyleRenderer(Renderer):
+    def __init__(
+        self,
+        model: StyleNerf,
+        base: Renderer
+    ):
+        super().__init__(
+            model, base.cfg, base.intr, base.bound, name='StyleRenderer'
+        )
+
+        self.density_grid = base.density_grid
+        self.density_bitfield = base.density_bitfield
+
     def render_style(
         self,
         rays: RayBatch,
@@ -290,12 +323,11 @@ class Renderer(TensorModule):
     def render(
         self: T,
         pose: TensorType[4, 4],
+        style_image: TensorType['H', 'W', 3],
         image: Optional[TensorType['H', 'W', 3]] = None,
-        style_image: Optional[TensorType['H', 'W', 3]] = None,
         patch: Optional[Box2D] = None,
         num_rays: Optional[int] = None,
-        training: bool = False,
-        max_num_samples: int = 80
+        training: bool = True
     ) -> Dict[str, torch.Tensor]:
         output = {}
 
@@ -304,10 +336,8 @@ class Renderer(TensorModule):
             pose, self.intr, image, patch=patch, precrop=precrop_frac,
             bsize=num_rays, camera_flip=self.cfg.flip_camera)
 
-        if style_image is not None:
-            output['rgb_map'] = self.render_style(
-                rays, style_image, max_num_samples=max_num_samples)
+        if training:
+            output['rgb_map'] = self.render_style(rays, style_image)
         else:
-            render_fn = self.render_train if training else self.render_test
-            output['rgb_map'], output['trans_map'] = render_fn(rays)
+            output['rgb_map'], _ = self.render_test(rays)
         return output
