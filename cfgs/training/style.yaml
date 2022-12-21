@@ -5,4 +5,4 @@ intervals:
   log: 1
   ckpt: 100
   test: 100
-photo_lambda: 0
+photo_lambda: 0.000005

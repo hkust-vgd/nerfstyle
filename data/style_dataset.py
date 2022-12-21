@@ -2,9 +2,26 @@ from pathlib import Path
 from typing import Optional
 
 from PIL import Image, ImageFile
+import torch
 from torch.utils.data import Dataset
 from torchvision.transforms import Compose, RandomCrop, Resize, ToTensor
 from common import DatasetSplit
+import utils
+
+
+class SingleImage(Dataset):
+    def __init__(
+        self,
+        image_path: str
+    ):
+        style_image_np = utils.parse_rgb(image_path, size=(800, 800))
+        self.style_image = torch.tensor(style_image_np)
+
+    def __getitem__(self, _):
+        return self.style_image
+
+    def __len__(self):
+        return 1
 
 
 class WikiartDataset(Dataset):

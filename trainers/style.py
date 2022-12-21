@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from common import Box2D, DatasetSplit, LossValue
 from config import BaseConfig
-from data.style_dataset import WikiartDataset
+from data.style_dataset import WikiartDataset, SingleImage
 from loss import AdaINStyleLoss, MattingLaplacian
 from networks.style_nerf import StyleNerf
 from networks.fx import VGG16FeatureExtractor
@@ -40,11 +40,14 @@ class StyleTrainer(Trainer):
         self.style_loss = AdaINStyleLoss(fx_keys)
         self.photo_loss = MattingLaplacian(device=self.device)
 
-        root_path = 'datasets/wikiart'
-        test_id = 12345
-        self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, fix_id=test_id)
-        self.style_train_loader = utils.cycle(DataLoader(
-            self.style_train_set, batch_size=1, shuffle=True))
+        # root_path = 'datasets/wikiart'
+        # test_id = 12345
+        # self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, fix_id=test_id)
+        # self.style_train_loader = utils.cycle(DataLoader(
+        #     self.style_train_set, batch_size=1, shuffle=True))
+
+        self.style_train_set = SingleImage(cfg.style_image)
+        self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
 
         # New model
         self.model = StyleNerf(self.model)
@@ -83,6 +86,11 @@ class StyleTrainer(Trainer):
         }
         total_loss = content_loss + style_loss + photo_loss
 
+        if self.iter_ctr <= 20:
+            mse_loss = F.mse_loss(rgb_map_chw, target_chw)
+            losses['mse'] = LossValue('MSE', 'mse_loss', mse_loss)
+            total_loss = mse_loss
+
         losses['total'] = LossValue('Total', 'total_loss', total_loss)
         return losses
 
@@ -106,7 +114,7 @@ class StyleTrainer(Trainer):
             _, h, w = image.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
             visuals = torch.cat((rgb_output.unsqueeze(0), style_images))
-            collage = torchvision.utils.make_grid(visuals, nrow=1, padding=0)
+            collage = torchvision.utils.make_grid(visuals, nrow=4, padding=0)
             save_path = image_dir / 'frame_{}.png'.format(frame_id)
             torchvision.utils.save_image(collage, save_path)
 
@@ -130,8 +138,9 @@ class StyleTrainer(Trainer):
 
         # Compute d_loss / d_pixels and cache
         output['rgb_map'].requires_grad = True
-        losses = self.calc_loss(output, style_images)
-        back_loss = losses['total' if 'total' in losses.keys() else 'mse'].value
+        with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
+            losses = self.calc_loss(output, style_images)
+            back_loss = losses['total' if 'total' in losses.keys() else 'mse'].value
         self.scaler.scale(back_loss).backward()
         grad_map = einops.rearrange(output['rgb_map'].grad, '(h w) c -> h w c', h=H, w=W)
 
