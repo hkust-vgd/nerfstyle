@@ -292,7 +292,7 @@ class StyleRenderer(Renderer):
     def render_style(
         self,
         rays: RayBatch,
-        style_image,
+        style_images: torch.Tensor,
         max_num_samples: int = 80
     ):
         nears, fars = raymarching.near_far_from_aabb(
@@ -304,7 +304,7 @@ class StyleRenderer(Renderer):
             self.cascade, self.cfg.grid_size, nears, fars, tmp_counter, self.mean_count,
             True, 128, True, 0., max_num_samples, False)
 
-        rgbs, sigmas = self.model(xyzs, None)
+        rgbs, sigmas = self.model(xyzs, style_images)
         sigmas = sigmas * self.cfg.density_scale
 
         weights_sum, _, pix_feats = raymarching.composite_rays_train(
@@ -313,12 +313,60 @@ class StyleRenderer(Renderer):
         pix_feats = pix_feats + (1 - weights_sum).unsqueeze(-1)
         return pix_feats
 
-        # # spatial attn here
-        # H, W = style_image.shape[-2:]
-        # pix_feats = rearrange(pix_feats, pattern='(h w) c -> c h w', h=H, w=W)
-        # pix_feats = self.model.spatial_attn(pix_feats, style_image)
-        # image = self.model.final(pix_feats)
-        # return image, depth
+    def render_test(
+        self,
+        rays: RayBatch,
+        style_images: torch.Tensor
+    ) -> Tuple[Tensor, Tensor]:
+        z_hats = None
+        if self.cfg.use_ndc:
+            z_hats = rays.dirs[:, 2]
+            rays = rays.warp_ndc(1., self.intr)
+
+        nears, fars = raymarching.near_far_from_aabb(
+            rays.origins, rays.dirs, self.aabb, self.cfg.min_near)
+
+        N = len(rays)
+        weights_sum = torch.zeros(N, dtype=torch.float32, device=self.device)
+        depth = torch.zeros(N, dtype=torch.float32, device=self.device)
+        image = torch.zeros(N, 3, dtype=torch.float32, device=self.device)
+
+        n_alive = N
+        rays_alive = torch.arange(n_alive, dtype=torch.int32, device=self.device)
+        rays_t = nears.clone()
+        if self.cfg.use_ndc:
+            nears_z = rays.lerp(nears)[:, 2]
+            rays_t_phy = (2 / (nears_z - 1) + 1) / z_hats
+            rays_t = torch.stack([rays_t, rays_t_phy], dim=-1)  # [N, 2]
+        else:
+            rays_t = rays_t[:, None]  # [N, 1]
+
+        step = 0
+        while step < self.cfg.max_steps:
+            n_alive = len(rays_alive)
+            if n_alive <= 0:
+                break
+
+            n_step = max(min(N // n_alive, 8), 1)
+            xyzs, _, deltas = raymarching.march_rays(
+                n_alive, n_step, rays_alive, rays_t, rays.origins, rays.dirs, z_hats,
+                self.bound, self.density_bitfield, self.cascade, self.cfg.grid_size,
+                nears, fars, 128, False, 0., self.cfg.max_steps, self.cfg.use_ndc)
+
+            rgbs, sigmas = self.model(xyzs, style_images)
+            sigmas = sigmas * self.cfg.density_scale
+
+            raymarching.composite_rays(
+                n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, self.cfg.use_ndc,
+                weights_sum, depth, image, self.cfg.t_thresh)
+
+            rays_alive = rays_alive[rays_alive >= 0]
+            step += n_step
+
+        image = image + (1 - weights_sum).unsqueeze(-1)
+        # depth = torch.clamp(depth - nears, min=0) / (fars - nears)
+
+        return image
 
     def render(
         self: T,
@@ -339,5 +387,5 @@ class StyleRenderer(Renderer):
         if training:
             output['rgb_map'] = self.render_style(rays, style_image)
         else:
-            output['rgb_map'], _ = self.render_test(rays)
+            output['rgb_map'] = self.render_test(rays, style_image)
         return output

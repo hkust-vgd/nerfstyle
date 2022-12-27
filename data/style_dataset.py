@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from PIL import Image, ImageFile
 import torch
@@ -12,9 +12,10 @@ import utils
 class SingleImage(Dataset):
     def __init__(
         self,
-        image_path: str
+        image_path: str,
+        size: Tuple[int, int]
     ):
-        style_image_np = utils.parse_rgb(image_path, size=(800, 800))
+        style_image_np = utils.parse_rgb(image_path, size=size)
         self.style_image = torch.tensor(style_image_np)
 
     def __getitem__(self, _):

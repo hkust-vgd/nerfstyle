@@ -1,8 +1,9 @@
 learning_rate_decay: 5000
 num_iterations: 5000
 intervals:
-  print: 5
+  print: 1
   log: 1
   ckpt: 100
   test: 100
 photo_lambda: 0.000005
+defer_patch_size: 50

@@ -40,19 +40,18 @@ class StyleTrainer(Trainer):
         self.style_loss = AdaINStyleLoss(fx_keys)
         self.photo_loss = MattingLaplacian(device=self.device)
 
-        # root_path = 'datasets/wikiart'
-        # test_id = 12345
-        # self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, fix_id=test_id)
-        # self.style_train_loader = utils.cycle(DataLoader(
-        #     self.style_train_set, batch_size=1, shuffle=True))
+        root_path = 'datasets/wikiart'
+        self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN)
+        self.style_train_loader = utils.cycle(DataLoader(
+            self.style_train_set, batch_size=1, shuffle=True))
 
-        self.style_train_set = SingleImage(cfg.style_image)
-        self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
+        # self.style_train_set = SingleImage(cfg.style_image, size=(800, 800))
+        # self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
 
         # New model
         self.model = StyleNerf(self.model)
         self.model.cuda()
-        self._reset_optim(['s_embedder', 'rgb'])  # , 'spatial', 'final'])
+        self._reset_optim(['s_embedder', 'rgb', 'style_attn'])
         self.renderer = StyleRenderer(self.model, self.renderer)
 
     def calc_loss(
@@ -86,7 +85,7 @@ class StyleTrainer(Trainer):
         }
         total_loss = content_loss + style_loss + photo_loss
 
-        if self.iter_ctr <= 20:
+        if self.iter_ctr < 10:
             mse_loss = F.mse_loss(rgb_map_chw, target_chw)
             losses['mse'] = LossValue('MSE', 'mse_loss', mse_loss)
             total_loss = mse_loss
@@ -113,6 +112,7 @@ class StyleTrainer(Trainer):
 
             _, h, w = image.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
+            # rgb_output = F.interpolate(rgb_output.unsqueeze(0), (256, 256))
             visuals = torch.cat((rgb_output.unsqueeze(0), style_images))
             collage = torchvision.utils.make_grid(visuals, nrow=4, padding=0)
             save_path = image_dir / 'frame_{}.png'.format(frame_id)
