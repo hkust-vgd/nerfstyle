@@ -6,4 +6,4 @@ intervals:
   ckpt: 100
   test: 100
 photo_lambda: 0.000005
-defer_patch_size: 50
+defer_patch_size: 20

@@ -40,18 +40,18 @@ class StyleTrainer(Trainer):
         self.style_loss = AdaINStyleLoss(fx_keys)
         self.photo_loss = MattingLaplacian(device=self.device)
 
-        root_path = 'datasets/wikiart'
-        self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN)
-        self.style_train_loader = utils.cycle(DataLoader(
-            self.style_train_set, batch_size=1, shuffle=True))
+        # root_path = 'datasets/wikiart'
+        # self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN)
+        # self.style_train_loader = utils.cycle(DataLoader(
+        #     self.style_train_set, batch_size=1, shuffle=True))
 
-        # self.style_train_set = SingleImage(cfg.style_image, size=(800, 800))
-        # self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
+        self.style_train_set = SingleImage(cfg.style_image, size=(800, 800))
+        self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
 
         # New model
         self.model = StyleNerf(self.model)
         self.model.cuda()
-        self._reset_optim(['s_embedder', 'rgb', 'style_attn'])
+        self._reset_optim(['x_embedder', 'rgb', 'style_attn'])  # , 'style_net'
         self.renderer = StyleRenderer(self.model, self.renderer)
 
     def calc_loss(
@@ -85,7 +85,7 @@ class StyleTrainer(Trainer):
         }
         total_loss = content_loss + style_loss + photo_loss
 
-        if self.iter_ctr < 10:
+        if self.iter_ctr < 30:
             mse_loss = F.mse_loss(rgb_map_chw, target_chw)
             losses['mse'] = LossValue('MSE', 'mse_loss', mse_loss)
             total_loss = mse_loss
