@@ -241,7 +241,7 @@ class Renderer(TensorModule):
                 self.bound, self.density_bitfield, self.cascade, self.cfg.grid_size,
                 nears, fars, 128, False, 0., self.cfg.max_steps, self.cfg.use_ndc)
 
-            rgbs, sigmas = self.model(xyzs, dirs)
+            rgbs, sigmas = self.model(xyzs, dirs, tmp=True)
             sigmas = sigmas * self.cfg.density_scale
 
             raymarching.composite_rays(
@@ -288,6 +288,7 @@ class StyleRenderer(Renderer):
 
         self.density_grid = base.density_grid
         self.density_bitfield = base.density_bitfield
+        self.style_stage = False
 
     def render_style(
         self,
@@ -304,7 +305,7 @@ class StyleRenderer(Renderer):
             self.cascade, self.cfg.grid_size, nears, fars, tmp_counter, self.mean_count,
             True, 128, True, 0., max_num_samples, False)
 
-        rgbs, sigmas = self.model(xyzs, style_images)
+        rgbs, sigmas = self.model(xyzs, style_images, self.style_stage)
         sigmas = sigmas * self.cfg.density_scale
 
         weights_sum, _, pix_feats = raymarching.composite_rays_train(
@@ -353,7 +354,7 @@ class StyleRenderer(Renderer):
                 self.bound, self.density_bitfield, self.cascade, self.cfg.grid_size,
                 nears, fars, 128, False, 0., self.cfg.max_steps, self.cfg.use_ndc)
 
-            rgbs, sigmas = self.model(xyzs, style_images)
+            rgbs, sigmas = self.model(xyzs, style_images, self.style_stage)
             sigmas = sigmas * self.cfg.density_scale
 
             raymarching.composite_rays(
@@ -384,8 +385,8 @@ class StyleRenderer(Renderer):
             pose, self.intr, image, patch=patch, precrop=precrop_frac,
             bsize=num_rays, camera_flip=self.cfg.flip_camera)
 
-        if training:
-            output['rgb_map'] = self.render_style(rays, style_image)
-        else:
-            output['rgb_map'] = self.render_test(rays, style_image)
+        render_fn = self.render_style if training else self.render_test
+        # output['orig_map'], output['rgb_map'] = torch.split(
+        #     render_fn(rays, style_image), (3, 3), dim=-1)
+        output['rgb_map'] = render_fn(rays, style_image)
         return output

@@ -13,7 +13,7 @@ from tqdm import tqdm
 from common import Box2D, DatasetSplit, LossValue
 from config import BaseConfig
 from data.style_dataset import WikiartDataset, SingleImage
-from loss import AdaINStyleLoss, MattingLaplacian
+from loss import AdaINStyleLoss, GramStyleLoss, MattingLaplacian
 from networks.style_nerf import StyleNerf
 from networks.fx import VGG16FeatureExtractor
 from renderer import StyleRenderer
@@ -38,21 +38,24 @@ class StyleTrainer(Trainer):
         fx_keys = ['relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1']
         self.fx = VGG16FeatureExtractor(fx_keys).to(self.device)
         self.style_loss = AdaINStyleLoss(fx_keys)
+        # self.style_loss = GramStyleLoss(fx_keys)
         self.photo_loss = MattingLaplacian(device=self.device)
 
-        # root_path = 'datasets/wikiart'
-        # self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN)
-        # self.style_train_loader = utils.cycle(DataLoader(
-        #     self.style_train_set, batch_size=1, shuffle=True))
+        root_path = 'datasets/wikiart'
+        self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN)
+        self.style_train_loader = utils.cycle(DataLoader(
+            self.style_train_set, batch_size=1, shuffle=True))
 
-        self.style_train_set = SingleImage(cfg.style_image, size=(800, 800))
-        self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
+        # self.style_train_set = SingleImage(cfg.style_image, size=(800, 800))
+        # self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
 
         # New model
         self.model = StyleNerf(self.model)
         self.model.cuda()
-        self._reset_optim(['x_embedder', 'rgb', 'style_attn'])  # , 'style_net'
+        self._reset_optim(['x_embedder', 'rgb'])
         self.renderer = StyleRenderer(self.model, self.renderer)
+
+        self.mse_end = 20
 
     def calc_loss(
         self,
@@ -67,11 +70,12 @@ class StyleTrainer(Trainer):
         target_chw = nc2chw(output['target'])
 
         rgb_feats = self.fx(rgb_map_chw)
+        rgb_resized_feats = self.fx(F.interpolate(rgb_map_chw.unsqueeze(0), (256, 256)))
         target_feats = self.fx(target_chw)
         style_feats = self.fx(style_img)
 
         content_loss = F.mse_loss(rgb_feats['relu3_1'], target_feats['relu3_1'])
-        style_loss = self.style_loss(rgb_feats, style_feats)
+        style_loss = self.style_loss(rgb_resized_feats, style_feats)
         photo_loss = self.photo_loss(target_chw, rgb_map_chw)
 
         content_loss *= self.train_cfg.content_lambda
@@ -83,9 +87,11 @@ class StyleTrainer(Trainer):
             'style': LossValue('Style', 'style_loss', style_loss),
             'photo': LossValue('Photo', 'photo_loss', photo_loss),
         }
-        total_loss = content_loss + style_loss + photo_loss
+        # total_loss = content_loss + style_loss + photo_loss
+        # total_loss = content_loss + photo_loss
+        total_loss = style_loss
 
-        if self.iter_ctr < 30:
+        if self.iter_ctr < self.mse_end:
             mse_loss = F.mse_loss(rgb_map_chw, target_chw)
             losses['mse'] = LossValue('MSE', 'mse_loss', mse_loss)
             total_loss = mse_loss
@@ -102,19 +108,23 @@ class StyleTrainer(Trainer):
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         image_dir.mkdir()
 
+        _, fixed_pose = self.test_set[0]
+        fixed_pose = torch.from_numpy(fixed_pose).to(self.device)
+
         for i, (image, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.frame_str_ids[i]
             image, pose = image.to(self.device), pose.to(self.device)
             style_images = next(self.style_train_loader).cuda()
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
                 with self.ema.average_parameters():
-                    output = self.renderer.render(pose, style_images, image, training=False)
+                    output = self.renderer.render(fixed_pose, style_images, image, training=False)
 
             _, h, w = image.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
-            # rgb_output = F.interpolate(rgb_output.unsqueeze(0), (256, 256))
-            visuals = torch.cat((rgb_output.unsqueeze(0), style_images))
-            collage = torchvision.utils.make_grid(visuals, nrow=4, padding=0)
+            style_images = F.pad(style_images, pad=(0, 0, 0, 544), value=0)
+            # visuals = torch.cat((rgb_output.unsqueeze(0), style_images))
+            # collage = torchvision.utils.make_grid(visuals, nrow=4, padding=0)
+            collage = torch.cat((rgb_output.unsqueeze(0), style_images), dim=-1)
             save_path = image_dir / 'frame_{}.png'.format(frame_id)
             torchvision.utils.save_image(collage, save_path)
 
@@ -122,6 +132,11 @@ class StyleTrainer(Trainer):
         """
         Run one training iteration.
         """
+        if self.iter_ctr == self.mse_end:
+            self.train_cfg.initial_learning_rate = 0.0001
+            self._reset_optim(['style_net', 'color_net'])
+            self.renderer.style_stage = True
+
         self.time0 = time.time()
         image, pose = next(self.train_loader)
         image, pose = image.to(self.device), pose.to(self.device)
@@ -169,7 +184,7 @@ class StyleTrainer(Trainer):
         # Misc. tasks at different intervals
         if self._check_interval(self.train_cfg.intervals.print):
             self.print_status(losses)
-        if self._check_interval(self.train_cfg.intervals.test):
+        if self._check_interval(self.train_cfg.intervals.test) or self.iter_ctr == self.mse_end:
             self.test_networks()
         if self._check_interval(self.train_cfg.intervals.log):
             self.log_status(losses)

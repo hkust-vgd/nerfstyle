@@ -263,15 +263,16 @@ class _composite_rays_train(Function):
 
         M = sigmas.shape[0]
         N = rays.shape[0]
+        C = rgbs.shape[1]
 
         weights_sum = torch.empty(N, dtype=sigmas.dtype, device=sigmas.device)
         depth = torch.empty(N, dtype=sigmas.dtype, device=sigmas.device)
-        image = torch.empty(N, 3, dtype=sigmas.dtype, device=sigmas.device)
+        image = torch.empty(N, C, dtype=sigmas.dtype, device=sigmas.device)
 
-        _backend.composite_rays_train_forward(sigmas, rgbs, deltas, rays, M, N, T_thresh, is_ndc, weights_sum, depth, image)
+        _backend.composite_rays_train_forward(sigmas, rgbs, deltas, rays, M, N, C, T_thresh, is_ndc, weights_sum, depth, image)
 
         ctx.save_for_backward(sigmas, rgbs, deltas, rays, weights_sum, depth, image)
-        ctx.dims = [M, N, T_thresh]
+        ctx.dims = [M, N, C, T_thresh]
         ctx.is_ndc = is_ndc
 
         return weights_sum, depth, image
@@ -286,12 +287,13 @@ class _composite_rays_train(Function):
         grad_image = grad_image.contiguous()
 
         sigmas, rgbs, deltas, rays, weights_sum, depth, image = ctx.saved_tensors
-        M, N, T_thresh = ctx.dims
+        M, N, C, T_thresh = ctx.dims
    
         grad_sigmas = torch.zeros_like(sigmas)
         grad_rgbs = torch.zeros_like(rgbs)
+        rgbs_buf = torch.zeros_like(image)
 
-        _backend.composite_rays_train_backward(grad_weights_sum, grad_image, sigmas, rgbs, deltas, rays, ctx.is_ndc, weights_sum, image, M, N, T_thresh, grad_sigmas, grad_rgbs)
+        _backend.composite_rays_train_backward(grad_weights_sum, grad_image, sigmas, rgbs, deltas, rays, ctx.is_ndc, weights_sum, image, M, N, C, T_thresh, grad_sigmas, grad_rgbs, rgbs_buf)
 
         return grad_sigmas, grad_rgbs, None, None, None, None
 
@@ -383,8 +385,9 @@ class _composite_rays(Function):
         '''
         t_size = 2 if is_ndc else 1
         assert rays_t.shape[-1] == t_size
+        C = rgbs.shape[-1]
 
-        _backend.composite_rays(n_alive, n_step, T_thresh, rays_alive, rays_t, sigmas, rgbs, deltas, is_ndc, weights_sum, depth, image)
+        _backend.composite_rays(n_alive, n_step, T_thresh, rays_alive, rays_t, sigmas, rgbs, deltas, C, is_ndc, weights_sum, depth, image)
         return tuple()
 
 

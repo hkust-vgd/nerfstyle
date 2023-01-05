@@ -6,10 +6,11 @@ import torch.nn.functional as F
 import tinycudann as tcnn
 
 from common import TensorModule
-from networks.fx import VGG16FeatureExtractor
-from networks.attn import MultiHeadAttention
+# from networks.fx import VGG16FeatureExtractor
+from networks.fx_vae import StyleVAEExtractor
+# from networks.attn import MultiHeadAttention
 from networks.tcnn_nerf import TCNerf, trunc_exp
-import utils
+# import utils
 
 
 class StyleNerf(TensorModule):
@@ -39,34 +40,55 @@ class StyleNerf(TensorModule):
             seed=self.cfg.network_seed
         )
 
-        self.style_fx = VGG16FeatureExtractor('relu5_1')
+        self.color_net = tcnn.Network(
+            n_input_dims=67,
+            n_output_dims=3,
+            network_config={
+                'otype': 'FullyFusedMLP',
+                'activation': 'ReLU',
+                'output_activation': 'None',
+                'n_neurons': 64,
+                'n_hidden_layers': 3
+            },
+            seed=self.cfg.network_seed
+        )
 
-        source_dim = 3  # dimension of encoding
-        cross_dim = 512  # dimension of style vector
-        self.style_attn = MultiHeadAttention(4, 32, 32, source_dim, cross_dim, actv='layer')
+        # self.style_fx = VGG16FeatureExtractor('relu5_1')
+        self.style_fx = StyleVAEExtractor().cuda()
 
-    def forward(self, pts, style_images):
+        # source_dim = 3  # dimension of encoding
+        # cross_dim = 512  # dimension of style vector
+        # self.style_attn = MultiHeadAttention(4, 32, 32, source_dim, cross_dim, actv='layer')
+        self.style_net = tcnn.Network(
+            n_input_dims=512,
+            n_output_dims=32,
+            network_config={
+                'otype': 'FullyFusedMLP',
+                'activation': 'ReLU',
+                'output_activation': 'None',
+                'n_neurons': 64,
+                'n_hidden_layers': 3
+            },
+            seed=self.cfg.network_seed
+        )
+
+    def forward(self, pts, style_images, tmp=False):
         pts = self.bounds_bbox.normalize(pts)
         d_embedded = self.d_embedder(pts)
         density_output = self.density_net(d_embedded)
         sigmas = trunc_exp(density_output[:, 0:1])
 
         x_embedded = self.x_embedder(pts)
-        style_images = F.interpolate(style_images, size=(256, 256))
-        style_vectors = self.style_fx(style_images)['relu5_1']
-        style_vectors = rearrange(style_vectors, 'b c h w -> b (h w) c')
-
         rgb_input = torch.cat((density_output[:, 1:], x_embedded), dim=-1)
         rgbs = self.rgb_net(rgb_input)
 
-        with torch.cuda.amp.autocast(dtype=torch.float32):
-            def attn(feat_vectors_batch):
-                feat_vectors_batch = feat_vectors_batch.unsqueeze(1)
-                attn_feats_batch = self.style_attn(feat_vectors_batch, style_vectors, style_vectors)
-                return attn_feats_batch.squeeze(1)
+        if not tmp:
+            rgbs = torch.sigmoid(rgbs)
+            return rgbs, sigmas
 
-            attn_rgbs = torch.empty_like(rgbs, device=self.device)
-            utils.batch_exec(attn, attn_rgbs, bsize=16384)(rgbs)
-            attn_rgbs = torch.sigmoid(attn_rgbs)
+        style_vectors = self.style_fx(style_images)
+        style_vectors = self.style_net(style_vectors).repeat((len(x_embedded), 1))
 
-        return attn_rgbs, sigmas
+        color_input = torch.cat((rgbs, x_embedded, style_vectors), dim=-1)
+        rgbs = torch.sigmoid(self.color_net(color_input))
+        return rgbs, sigmas

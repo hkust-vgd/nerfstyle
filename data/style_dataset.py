@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 from PIL import Image, ImageFile
 import torch
 from torch.utils.data import Dataset
-from torchvision.transforms import Compose, RandomCrop, Resize, ToTensor
+from torchvision.transforms import Compose, RandomResizedCrop, ToTensor
 from common import DatasetSplit
 import utils
 
@@ -30,6 +30,7 @@ class WikiartDataset(Dataset):
         self,
         root_path: str,
         split: DatasetSplit,
+        max_images: Optional[int] = 1000,
         fix_id: Optional[int] = None
     ):
         super().__init__()
@@ -39,10 +40,11 @@ class WikiartDataset(Dataset):
         img_dir = self.root_dir / split.name.lower()
 
         self.paths = sorted(img_dir.glob('*.jpg'))
+        if max_images is not None:
+            self.paths = self.paths[:max_images]
 
         transforms = [
-            Resize(800),
-            RandomCrop(800),
+            RandomResizedCrop(256, scale=(0.5, 1.0), ratio=(1.0, 1.0)),
             ToTensor()
         ]
 
