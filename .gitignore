@@ -10,3 +10,5 @@ __pycache__
 style_images
 *.so
 raymarching/build
+pretrained/
+
