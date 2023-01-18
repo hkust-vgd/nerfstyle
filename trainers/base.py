@@ -16,7 +16,7 @@ from common import DatasetSplit, LossValue
 from config import BaseConfig, DatasetConfig, NetworkConfig, RendererConfig, TrainConfig
 from data import get_dataset
 from nerf_lib import nerf_lib
-from networks.tcnn_nerf import TCNerf
+from networks.tcnn_nerf import TCNerf, StyleTCNerf
 from renderer import Renderer
 import utils
 
@@ -117,14 +117,13 @@ class Trainer:
         # Initialize model and renderer
         if trainer is None:
             enc_dtype = None if self.train_cfg.enable_amp else torch.float32
-            self.model = TCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
+            self.model = StyleTCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
 
             self.model = self.model.to(self.device)
             self.logger.info('Created model ' + str(type(self.model)))
 
             self.renderer = Renderer(
                 self.model, self.render_cfg, self.train_set.intr, self.dataset_cfg.bound,
-                bg_color=self.dataset_cfg.bg_color,
                 precrop_frac=self.train_cfg.precrop_fraction
             )
         else:
@@ -132,7 +131,8 @@ class Trainer:
             self.renderer = trainer.renderer.to(self.device)
 
         # Initialize optimizer and miscellaneous components
-        self._reset_optim(['embedder'])
+        self._reset_optim(['embedder', 'net'])
+        # self._reset_optim(['x_density_embedder', 'x_color_embedder', 'net'])
 
     def _reset_optim(self, keywords=None):
         all_keys = [n for n, _ in self.model.named_parameters()]

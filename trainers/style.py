@@ -11,7 +11,7 @@ import torchvision
 from tqdm import tqdm
 
 from common import Box2D, DatasetSplit, LossValue
-from config import BaseConfig
+from config import BaseConfig, ConfigValue
 from data.style_dataset import WikiartDataset, SingleImage
 from loss import AdaINStyleLoss, GramStyleLoss, MattingLaplacian
 from networks.style_nerf import StyleNerf
@@ -41,21 +41,22 @@ class StyleTrainer(Trainer):
         # self.style_loss = GramStyleLoss(fx_keys)
         self.photo_loss = MattingLaplacian(device=self.device)
 
-        root_path = 'datasets/wikiart'
-        self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN)
-        self.style_train_loader = utils.cycle(DataLoader(
-            self.style_train_set, batch_size=1, shuffle=True))
-
-        # self.style_train_set = SingleImage(cfg.style_image, size=(800, 800))
-        # self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
+        if cfg.style_image is ConfigValue.EmptyPassed:
+            root_path = 'datasets/wikiart'
+            self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, max_images=8)
+            self.style_train_loader = utils.cycle(DataLoader(
+                self.style_train_set, batch_size=1, shuffle=True))
+        else:
+            self.style_train_set = SingleImage(cfg.style_image, size=(256, 256))
+            self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
+        self.logger.info('Loaded ' + str(self.style_train_set))
 
         # New model
-        self.model = StyleNerf(self.model)
+        # self.model = StyleNerf(self.model)
         self.model.cuda()
-        self._reset_optim(['x_embedder', 'rgb'])
+        self._reset_optim(['x_style_embedders', 'color1_net', 'color2_net', 'style_net'])
         self.renderer = StyleRenderer(self.model, self.renderer)
-
-        self.mse_end = 20
+        self.renderer.style_stage = True
 
     def calc_loss(
         self,
@@ -89,12 +90,12 @@ class StyleTrainer(Trainer):
         }
         # total_loss = content_loss + style_loss + photo_loss
         # total_loss = content_loss + photo_loss
-        total_loss = style_loss
+        total_loss = content_loss + style_loss
 
-        if self.iter_ctr < self.mse_end:
-            mse_loss = F.mse_loss(rgb_map_chw, target_chw)
-            losses['mse'] = LossValue('MSE', 'mse_loss', mse_loss)
-            total_loss = mse_loss
+        # if self.iter_ctr < self.mse_end:
+        #     mse_loss = F.mse_loss(rgb_map_chw, target_chw)
+        #     losses['mse'] = LossValue('MSE', 'mse_loss', mse_loss)
+        #     total_loss = mse_loss
 
         losses['total'] = LossValue('Total', 'total_loss', total_loss)
         return losses
@@ -108,16 +109,18 @@ class StyleTrainer(Trainer):
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         image_dir.mkdir()
 
-        _, fixed_pose = self.test_set[0]
-        fixed_pose = torch.from_numpy(fixed_pose).to(self.device)
+        # _, fixed_pose = self.test_set[0]
+        # fixed_pose = torch.from_numpy(fixed_pose).to(self.device)
 
         for i, (image, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.frame_str_ids[i]
             image, pose = image.to(self.device), pose.to(self.device)
-            style_images = next(self.style_train_loader).cuda()
+            style_images, style_ids = next(self.style_train_loader)
+            style_images = style_images.to(self.device)
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
                 with self.ema.average_parameters():
-                    output = self.renderer.render(fixed_pose, style_images, image, training=False)
+                    output = self.renderer.render(
+                        pose, (style_images, style_ids), image, training=False)
 
             _, h, w = image.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
@@ -132,15 +135,11 @@ class StyleTrainer(Trainer):
         """
         Run one training iteration.
         """
-        if self.iter_ctr == self.mse_end:
-            self.train_cfg.initial_learning_rate = 0.0001
-            self._reset_optim(['style_net', 'color_net'])
-            self.renderer.style_stage = True
-
         self.time0 = time.time()
         image, pose = next(self.train_loader)
+        style_images, style_ids = next(self.style_train_loader)
         image, pose = image.to(self.device), pose.to(self.device)
-        style_images = next(self.style_train_loader).to(self.device)
+        style_images = style_images.to(self.device)
         W, H = self.train_set.intr.size()
 
         self.renderer.use_precrop = (self.iter_ctr < self.train_cfg.precrop_iterations)
@@ -149,7 +148,7 @@ class StyleTrainer(Trainer):
         # First pass: render all pixels without gradients
         with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
             with torch.no_grad():
-                output = self.renderer.render(pose, style_images, image)
+                output = self.renderer.render(pose, (style_images, style_ids), image)
 
         # Compute d_loss / d_pixels and cache
         output['rgb_map'].requires_grad = True
@@ -164,7 +163,8 @@ class StyleTrainer(Trainer):
         for x, y in product(range(0, W, ps), range(0, H, ps)):
             patch = Box2D(x=x, y=y, w=ps, h=ps)
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
-                patch_output = self.renderer.render(pose, style_images, image, patch=patch)
+                patch_output = self.renderer.render(
+                    pose, (style_images, style_ids), image, patch=patch)
 
             # Backprop cached grads to network
             patch_grad = grad_map[patch.hrange(), patch.wrange()].reshape(-1, 3)
@@ -184,7 +184,7 @@ class StyleTrainer(Trainer):
         # Misc. tasks at different intervals
         if self._check_interval(self.train_cfg.intervals.print):
             self.print_status(losses)
-        if self._check_interval(self.train_cfg.intervals.test) or self.iter_ctr == self.mse_end:
+        if self._check_interval(self.train_cfg.intervals.test):
             self.test_networks()
         if self._check_interval(self.train_cfg.intervals.log):
             self.log_status(losses)

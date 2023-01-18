@@ -241,7 +241,7 @@ class Renderer(TensorModule):
                 self.bound, self.density_bitfield, self.cascade, self.cfg.grid_size,
                 nears, fars, 128, False, 0., self.cfg.max_steps, self.cfg.use_ndc)
 
-            rgbs, sigmas = self.model(xyzs, dirs, tmp=True)
+            rgbs, sigmas = self.model(xyzs, dirs)
             sigmas = sigmas * self.cfg.density_scale
 
             raymarching.composite_rays(
@@ -300,12 +300,12 @@ class StyleRenderer(Renderer):
             rays.origins, rays.dirs, self.aabb, self.cfg.min_near)
         tmp_counter = torch.zeros(2).to(self.step_counter)
 
-        xyzs, _, deltas, rays_info = raymarching.march_rays_train(
+        xyzs, dirs, deltas, rays_info = raymarching.march_rays_train(
             rays.origins, rays.dirs, None, self.bound, self.density_bitfield,
             self.cascade, self.cfg.grid_size, nears, fars, tmp_counter, self.mean_count,
             True, 128, True, 0., max_num_samples, False)
 
-        rgbs, sigmas = self.model(xyzs, style_images, self.style_stage)
+        rgbs, sigmas = self.model(xyzs, dirs=dirs, style_input=style_images)
         sigmas = sigmas * self.cfg.density_scale
 
         weights_sum, _, pix_feats = raymarching.composite_rays_train(
@@ -349,12 +349,12 @@ class StyleRenderer(Renderer):
                 break
 
             n_step = max(min(N // n_alive, 8), 1)
-            xyzs, _, deltas = raymarching.march_rays(
+            xyzs, dirs, deltas = raymarching.march_rays(
                 n_alive, n_step, rays_alive, rays_t, rays.origins, rays.dirs, z_hats,
                 self.bound, self.density_bitfield, self.cascade, self.cfg.grid_size,
                 nears, fars, 128, False, 0., self.cfg.max_steps, self.cfg.use_ndc)
 
-            rgbs, sigmas = self.model(xyzs, style_images, self.style_stage)
+            rgbs, sigmas = self.model(xyzs, dirs=dirs, style_input=style_images)
             sigmas = sigmas * self.cfg.density_scale
 
             raymarching.composite_rays(

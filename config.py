@@ -18,6 +18,11 @@ logger = create_logger(__name__)
 T = TypeVar('T', bound='Config')
 
 
+# Special value indicating parameter is passed without any argument
+class ConfigValue(Enum):
+    EmptyPassed = float('nan')
+
+
 def flatten(
     d: Dict[str, Any],
     delim: str = '.',
@@ -71,12 +76,18 @@ def extract_opt(field_opt_type):
     return field_opt_type.__args__[0]
 
 
+def tmp(p):
+    if p is ConfigValue.EmptyPassed:
+        return p
+    return Path(p).expanduser()
+
+
 class Config:
     default_path: Optional[str] = None
     print_col_width: int = 30
 
     types_cfg = DaciteConfig(strict=True, type_hooks={
-        Path: lambda p: Path(p).expanduser(),
+        Path: tmp,
         tuple: tuple
     })
 
@@ -184,7 +195,11 @@ class Config:
             elif v is None:
                 # Optional argument, no default value
                 if not dataclasses.is_dataclass(field_type):
-                    parser.add_argument(*_argnames(k), type=field_type, help=docstr)
+                    def type_converter(x):
+                        return field_type(x)
+                    parser.add_argument(
+                        *_argnames(k), type=type_converter, help=docstr, nargs='?',
+                        default=None, const=ConfigValue.EmptyPassed)
 
             # Optional argument, has loaded default value
             elif isinstance(v, bool):
@@ -217,7 +232,7 @@ class BaseConfig(Config):
     ckpt: Optional[Path] = None
     """Path of checkpoint to load from."""
 
-    style_image: Optional[Path] = None
+    style_image: Optional[Union[Path, ConfigValue]] = None
     """If provided, model will perform style transfer on this image."""
 
     run_dir: Path = './runs'
