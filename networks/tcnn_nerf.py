@@ -94,7 +94,7 @@ class TCNerf(TensorModule):
             seed=self.cfg.network_seed
         )
 
-    def forward(self, pts, dirs=None):
+    def forward(self, pts, dirs=None, **kwargs):
         pts = self.bounds_bbox.normalize(pts)
         x_embedded = self.x_embedder(pts)
         density_output = self.density_net(x_embedded)

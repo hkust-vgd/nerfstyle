@@ -10,8 +10,7 @@ from torchtyping import TensorType
 from common import Box2D, Intrinsics, RayBatch, TensorModule
 from config import RendererConfig
 from nerf_lib import nerf_lib
-from networks.tcnn_nerf import TCNerf
-from networks.style_nerf import StyleNerf
+from networks.tcnn_nerf import TCNerf, StyleTCNerf
 import raymarching
 import utils
 
@@ -279,7 +278,7 @@ class Renderer(TensorModule):
 class StyleRenderer(Renderer):
     def __init__(
         self,
-        model: StyleNerf,
+        model: StyleTCNerf,
         base: Renderer
     ):
         super().__init__(

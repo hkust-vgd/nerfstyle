@@ -20,7 +20,7 @@ class SingleImage(Dataset):
         self.style_image = torch.tensor(style_image_np)
 
     def __getitem__(self, _):
-        return self.style_image
+        return (self.style_image, 0)
 
     def __len__(self):
         return 1

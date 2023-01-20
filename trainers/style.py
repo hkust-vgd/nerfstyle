@@ -14,7 +14,6 @@ from common import Box2D, DatasetSplit, LossValue
 from config import BaseConfig, ConfigValue
 from data.style_dataset import WikiartDataset, SingleImage
 from loss import AdaINStyleLoss, GramStyleLoss, MattingLaplacian
-from networks.style_nerf import StyleNerf
 from networks.fx import VGG16FeatureExtractor
 from renderer import StyleRenderer
 from trainers.base import Trainer
@@ -51,8 +50,6 @@ class StyleTrainer(Trainer):
             self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
         self.logger.info('Loaded ' + str(self.style_train_set))
 
-        # New model
-        # self.model = StyleNerf(self.model)
         self.model.cuda()
         self._reset_optim(['x_style_embedders', 'color1_net', 'color2_net', 'style_net'])
         self.renderer = StyleRenderer(self.model, self.renderer)
