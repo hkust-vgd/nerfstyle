@@ -1,0 +1,4 @@
+root_path: datasets/NSVF/TanksAndTemple/Family/
+type: NSVF
+scale: 2.67
+coord_type: RFU

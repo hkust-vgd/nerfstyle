@@ -117,7 +117,8 @@ class Trainer:
         # Initialize model and renderer
         if trainer is None:
             enc_dtype = None if self.train_cfg.enable_amp else torch.float32
-            self.model = StyleTCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
+            self.model = TCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
+            # self.model = StyleTCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
 
             self.model = self.model.to(self.device)
             self.logger.info('Created model ' + str(type(self.model)))

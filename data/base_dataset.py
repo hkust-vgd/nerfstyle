@@ -3,7 +3,7 @@ from typing import List, Optional
 import numpy as np
 from torch.utils.data import Dataset
 
-from common import BBox, DatasetSplit, Intrinsics
+from common import BBox, DatasetSplit, DatasetCoordSystem, Intrinsics
 from config import DatasetConfig
 
 
@@ -56,6 +56,18 @@ class BaseDataset(Dataset, ABC):
         assert self.imgs.shape[1] == 4
         rgb, alpha = self.imgs[:, :3], self.imgs[:, 3:]
         self.imgs = rgb * alpha + (1 - alpha)
+
+    def _preprocess_poses(self):
+        assert len(self.poses.shape) == 3
+        assert self.poses.shape[1] == self.poses.shape[2] == 4
+
+        # Correct coordinate system
+        if self.cfg.coord_type == DatasetCoordSystem.RDF:
+            self.poses = self.poses[:, [0, 2, 1, 3]]
+            self.poses[:, 2] *= -1
+
+        # Scale poses
+        self.poses[:, :3, 3] *= self.cfg.scale
 
     def _init_frame_ids(self, frame_count: int) -> List[int]:
         if self.max_count is None or self.max_count >= frame_count:

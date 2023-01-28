@@ -20,6 +20,11 @@ class DatasetSplit(Enum):
     TEST = 2
 
 
+class DatasetCoordSystem(Enum):
+    RFU = 0  # X = right, Y = front, Z = up
+    RDF = 1  # X = right, Y = down, Z = front
+
+
 @dataclass(frozen=True)
 class Box2D:
     """2D bounding box."""

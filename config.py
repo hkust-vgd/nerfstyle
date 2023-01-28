@@ -11,6 +11,7 @@ from dacite.exceptions import UnexpectedDataError
 from simple_parsing.docstring import get_attribute_docstring
 import yaml
 
+from common import DatasetCoordSystem
 from utils import create_logger
 
 
@@ -88,7 +89,8 @@ class Config:
 
     types_cfg = DaciteConfig(strict=True, type_hooks={
         Path: tmp,
-        tuple: tuple
+        tuple: tuple,
+        DatasetCoordSystem: lambda x: DatasetCoordSystem[x]
     })
 
     @classmethod
@@ -253,8 +255,11 @@ class DatasetConfig(Config):
     scale: float
     """Scale all poses (w.r.t origin) by a factor."""
 
-    bg_color: str
-    """Background color. Any matplotlib.colors compatible string is acceptable."""
+    coord_type: DatasetCoordSystem = DatasetCoordSystem.RFU
+    """Coordinate system for raw poses."""
+
+    # bg_color: str
+    # """Background color. Any matplotlib.colors compatible string is acceptable."""
 
     @dataclass
     class ReplicaConfig:
@@ -273,7 +278,7 @@ class DatasetConfig(Config):
         scale_factor: float
         """Scale bounding box by this value before subdivision into smaller networks."""
 
-    replica_cfg: Optional[ReplicaConfig]
+    replica_cfg: Optional[ReplicaConfig] = None
     """Additional config settings for Replica dataset."""
 
     default_path = 'cfgs/dataset/default.yaml'

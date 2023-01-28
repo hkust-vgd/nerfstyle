@@ -1,0 +1,4 @@
+root_path: datasets/NSVF/TanksAndTemple/Truck/
+type: NSVF
+scale: 0.85
+coord_type: RFU
