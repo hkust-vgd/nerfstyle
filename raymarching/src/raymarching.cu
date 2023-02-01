@@ -80,6 +80,105 @@ inline __host__ __device__ uint32_t __morton3D_invert(uint32_t x)
 	return x;
 }
 
+// Element-wise operations
+
+inline __host__ __device__ float3 operator+(const float3 &a, const float3 &b) {
+    return make_float3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
+inline __host__ __device__ float3 operator-(const float3 &a, const float3 &b) {
+    return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+inline __host__ __device__ float3 operator*(const float3 &a, const float3 &b) {
+    return make_float3(a.x * b.x, a.y * b.y, a.z * b.z);
+}
+
+inline __host__ __device__ float fminf(const float3 &v) {
+    return fminf(v.x, fminf(v.y, v.z));
+}
+
+// Scalar operations
+
+inline __host__ __device__ float3 operator+(const float a, const float3 &b) {
+    return make_float3(a + b.x, a + b.y, a + b.z);
+}
+
+inline __host__ __device__ float3 operator+(const float3 &a, const float b) {
+    return b + a;
+}
+
+inline __host__ __device__ float3 operator-(const float a, const float3 &b) {
+    return make_float3(a - b.x, a - b.y, a - b.z);
+}
+
+inline __host__ __device__ float3 operator-(const float3 &a, const float b) {
+    return make_float3(a.x - b, a.y - b, a.z - b);
+}
+
+inline __host__ __device__ float3 operator*(const float a, const float3 &b) {
+    return make_float3(a * b.x, a * b.y, a * b.z);
+}
+
+inline __host__ __device__ float3 operator*(const float3 &a, const float b) {
+    return b * a;
+}
+
+inline __host__ __device__ float3 operator/(const float a, const float3 &b) {
+    return make_float3(a / b.x, a / b.y, a / b.z);
+}
+
+inline __host__ __device__ float3 operator/(const float3 &a, const float b) {
+    return make_float3(a.x / b, a.y / b, a.z / b);
+}
+
+// Vector math
+inline __host__ __device__ float dot(const float3 &a, const float3 &b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+inline __host__ __device__ float norm(const float3 &v) {
+    return sqrtf(dot(v, v));
+}
+
+// Assignment
+template <typename scalar_t>
+inline __host__ __device__ void write_float3(const float3 &v, scalar_t * dest) {
+    dest[0] = v.x;
+    dest[1] = v.y;
+    dest[2] = v.z;
+}
+
+// Conversion
+inline __host__ __device__ const uint3& to_uint3(const float3& v) {
+    return make_uint3((uint)v.x, (uint)v.y, (uint)v.z);
+}
+
+inline __host__ __device__ const float3& to_float3(const uint3& v) {
+    return make_float3((float)v.x, (float)v.y, (float)v.z);
+}
+
+// Other overloads for float3
+
+inline __host__ __device__ float3 clamp(const float3 &v, const float min, const float max) {
+    return make_float3(
+        fminf(max, fmaxf(min, v.x)),
+        fminf(max, fmaxf(min, v.y)),
+        fminf(max, fmaxf(min, v.z))
+    );
+}
+
+inline __device__ int mip_from_pos(const float3 &v, const float max_cascade) {
+    return mip_from_pos(v.x, v.y, v.z, max_cascade);
+}
+
+inline __host__ __device__ uint32_t __morton3D(uint3 v) {
+    return __morton3D(v.x, v.y, v.z);
+}
+
+inline __device__ float3 signf(const float3 &v) {
+    return make_float3(signf(v.x), signf(v.y), signf(v.z));
+}
 
 ////////////////////////////////////////////////////
 /////////////           utils          /////////////
@@ -499,6 +598,203 @@ void march_rays_train(const at::Tensor rays_o, const at::Tensor rays_d, const at
     }));
 }
 
+
+template <typename scalar_t>
+__global__ void kernel_march_rays_unbounded_train(
+    const scalar_t * __restrict__ rays_o,
+    const scalar_t * __restrict__ rays_d,
+    const uint8_t * __restrict__ grid,
+    const float bound,
+    const float dt_gamma,
+    const uint32_t max_steps,
+    const uint32_t N,
+    const uint32_t C,
+    const uint32_t H,
+    const uint32_t M,
+    const scalar_t * __restrict__ nears,
+    const scalar_t * __restrict__ fars,
+    scalar_t * xyzs,
+    scalar_t * dirs,
+    scalar_t * deltas,
+    int * rays,
+    int * counter,
+    const scalar_t * __restrict__ noises
+) {
+    const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
+    if (n >= N)
+        return;
+    
+    rays_o += n * 3;
+    rays_d += n * 3;
+
+    const float3 o = make_float3(rays_o[0], rays_o[1], rays_o[2]);
+    const float3 d = make_float3(rays_d[0], rays_d[1], rays_d[2]);
+    const float3 rd = 1 / d;
+
+    const float rH = 1 / (float)H;
+    const float H3 = H * H * H;
+
+    const float near = nears[n];
+    const float far = fars[n];
+    const float noise = noises[n];
+
+    const float dt_min = 2 * SQRT3() / max_steps;
+    const float dt_max = 2 * SQRT3() * (1 << (C - 1)) / H;
+
+    float t0 = near;
+    t0 += clamp(t0 * dt_gamma, dt_min, dt_max) * noise;
+
+    float t = t0;
+    uint32_t num_steps = 0;
+
+    while (t < far && num_steps < max_steps) {
+        const float3 p = clamp(o + t * d, -bound, bound);
+        const float dt = clamp(t * dt_gamma, dt_min, dt_max);
+
+        const int level = max(mip_from_pos(p, C), mip_from_dt(dt, H, C)); // [0, C)
+        const float mip_bound = fminf(scalbnf(1.0f, level), bound); // min(2^lvl, bound)
+        const float mip_rbound = 1 / mip_bound;
+
+        // corresponding cell for p
+        const uint3 np = to_uint3(clamp(0.5 * (p * mip_rbound + 1) * H, 0.0f, (float)(H - 1)));
+        const uint32_t index = level * H3 + __morton3D(np);
+        const bool occ = grid[index / 8] & (1 << (index % 8));
+
+        if (occ) {
+            num_steps++;
+            t += dt;
+        } else {
+            const float3 next_ts = ((
+                (to_float3(np) + 0.5f + 0.5f * signf(d)) * rH * 2 - 1) * mip_bound - p) * rd;
+            const float tt = t + fmaxf(0.0f, fminf(next_ts));
+
+            do {
+                t += clamp(t * dt_gamma, dt_min, dt_max);
+            } while (t < tt);
+        }
+    }
+
+    float r0 = 1 / norm(clamp(o + t * d, -bound, bound));
+    float r = r0;
+    float thres_r = 0.05;  // closer to 0 -> render into infinity
+    float dr = 0.005;
+
+    const float tb = -dot(d, o);  // assuming |d| = 1
+    const float b = norm(o + tb * d);  // B = closest pt on ray to origin; refer to NeRF++ paper
+
+    while (r > thres_r) {
+        r -= dr;
+        const float tr = sqrtf(1 / (r * r) - b * b) + tb;
+        const float3 p = o + tr * d;  // point in Euclidean space
+        const float3 pinv = p * r * r;  // point in inverted sphere space
+
+        const uint3 np = to_uint3(clamp(0.5 * (p + 1) * H, 0.0f, (float)(H - 1)));
+        const uint32_t index = C * H3 + __morton3D(np);
+        const bool occ = grid[index / 8] & (1 << (index % 8));
+        
+        if (occ) {
+            num_steps++;
+        }
+    }
+
+    uint32_t point_index = atomicAdd(counter, num_steps);
+    uint32_t ray_index = atomicAdd(counter + 1, 1);
+
+    rays[ray_index * 3] = n;
+    rays[ray_index * 3 + 1] = point_index;
+    rays[ray_index * 3 + 2] = num_steps;
+
+    return;
+
+    if ((num_steps == 0) || (point_index + num_steps >= M))
+        return;
+
+    xyzs += point_index * 3;
+    dirs += point_index * 3;
+    deltas += point_index * 4;
+
+    t = t0;
+    uint32_t step = 0;
+    float last_t = t;
+
+    while (t < far && step < num_steps) {
+        const float3 p = clamp(o + t * d, -bound, bound);
+        const float dt = clamp(t * dt_gamma, dt_min, dt_max);
+
+        const int level = max(mip_from_pos(p, C), mip_from_dt(dt, H, C)); // [0, C)
+        const float mip_bound = fminf(scalbnf(1.0f, level), bound); // min(2^lvl, bound)
+        const float mip_rbound = 1 / mip_bound;
+
+        // corresponding cell for p
+        const uint3 np = to_uint3(clamp(0.5 * (p * mip_rbound + 1) * H, 0.0f, (float)(H - 1)));
+        const uint32_t index = level * H3 + __morton3D(np);
+        const bool occ = grid[index / 8] & (1 << (index % 8));
+
+        if (occ) {
+            write_float3(p, xyzs);
+            write_float3(d, dirs);
+            t += dt;
+            deltas[0] = dt;
+            deltas[1] = t - last_t;
+            last_t = t;
+            xyzs += 3;
+            dirs += 3;
+            step++;
+        } else {
+            const float3 next_ts = ((
+                (to_float3(np) + 0.5f + 0.5f * signf(d)) * rH * 2 - 1) * mip_bound - p) * rd;
+            const float tt = t + fmaxf(0.0f, fminf(next_ts));
+
+            do {
+                t += clamp(t * dt_gamma, dt_min, dt_max);
+            } while (t < tt);
+        }
+    }
+}
+
+void march_rays_unbounded_train(
+    const at::Tensor rays_o,
+    const at::Tensor rays_d,
+    const at::Tensor grid,
+    const float bound,
+    const float dt_gamma,
+    const uint32_t max_steps,
+    const uint32_t N,
+    const uint32_t C,
+    const uint32_t H,
+    const uint32_t M,
+    const at::Tensor nears,
+    const at::Tensor fars,
+    at::Tensor xyzs,
+    at::Tensor dirs,
+    at::Tensor deltas,
+    at::Tensor rays,
+    at::Tensor counter,
+    at::Tensor noises
+) {
+    static constexpr uint32_t N_THREAD = 128;
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        rays_o.scalar_type(),
+        "march_rays_train",
+        ([&] {
+            kernel_march_rays_unbounded_train<<<div_round_up(N, N_THREAD), N_THREAD>>>(
+                rays_o.data_ptr<scalar_t>(),
+                rays_d.data_ptr<scalar_t>(),
+                grid.data_ptr<uint8_t>(),
+                bound, dt_gamma, max_steps, N, C, H, M,
+                nears.data_ptr<scalar_t>(),
+                fars.data_ptr<scalar_t>(),
+                xyzs.data_ptr<scalar_t>(),
+                dirs.data_ptr<scalar_t>(),
+                deltas.data_ptr<scalar_t>(),
+                rays.data_ptr<int>(),
+                counter.data_ptr<int>(),
+                noises.data_ptr<scalar_t>()
+            );
+        })
+    );
+}
 
 // sigmas: [M]
 // rgbs: [M, C]
