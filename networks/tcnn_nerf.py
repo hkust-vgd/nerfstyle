@@ -7,7 +7,49 @@ from typing import Optional
 
 from common import TensorModule, BBox
 from config import NetworkConfig
+from gridencoder import GridEncoder
 from networks.fx_vae import StyleVAEExtractor
+
+
+def get_grid_encoder(
+    cfg: NetworkConfig,
+    max_bound: float,
+    enc_dtype: Optional[torch.dtype] = None,
+    use_custom_impl: bool = True
+):
+    pos_enc_cfg = cfg.pos_enc
+    max_res = pos_enc_cfg.max_res_coeff * max_bound
+    per_lvl_scale = np.exp2(np.log2(max_res / pos_enc_cfg.min_res) / (pos_enc_cfg.n_lvls - 1))
+
+    if use_custom_impl:
+        # torch-ngp implementation (with custom edits)
+        encoder = GridEncoder(
+            input_dim=3,
+            num_levels=pos_enc_cfg.n_lvls,
+            level_dim=pos_enc_cfg.n_feats_per_lvl,
+            per_level_scale=per_lvl_scale,
+            base_resolution=pos_enc_cfg.min_res,
+            log2_hashmap_size=pos_enc_cfg.hashmap_size,
+            gridtype='hash',
+            align_corners=True
+        )
+    else:
+        # TCNN hash grid
+        encoder = tcnn.Encoding(
+            n_input_dims=3,
+            encoding_config={
+                'otype': 'HashGrid',
+                'n_levels': pos_enc_cfg.n_lvls,
+                'n_features_per_level': pos_enc_cfg.n_feats_per_lvl,
+                'log2_hashmap_size': pos_enc_cfg.hashmap_size,
+                'base_resolution': pos_enc_cfg.min_res,
+                'per_level_scale': per_lvl_scale
+            },
+            seed=cfg.network_seed,
+            dtype=enc_dtype
+        )
+
+    return encoder
 
 
 class _trunc_exp(Function):
@@ -39,23 +81,8 @@ class TCNerf(TensorModule):
         self.cfg = cfg
         self.bounds_bbox = bbox
 
-        pos_enc_cfg = self.cfg.pos_enc
-        max_res = pos_enc_cfg.max_res_coeff * torch.max(self.bounds_bbox.size).item()
-        per_lvl_scale = np.exp2(np.log2(max_res / pos_enc_cfg.min_res) / (pos_enc_cfg.n_lvls - 1))
-
-        self.x_embedder = tcnn.Encoding(
-            n_input_dims=3,
-            encoding_config={
-                'otype': 'HashGrid',
-                'n_levels': pos_enc_cfg.n_lvls,
-                'n_features_per_level': pos_enc_cfg.n_feats_per_lvl,
-                'log2_hashmap_size': pos_enc_cfg.hashmap_size,
-                'base_resolution': pos_enc_cfg.min_res,
-                'per_level_scale': per_lvl_scale
-            },
-            seed=self.cfg.network_seed,
-            dtype=enc_dtype
-        )
+        max_bound = torch.max(self.bounds_bbox.size).item()
+        self.x_embedder = get_grid_encoder(self.cfg, max_bound, enc_dtype)
 
         self.d_embedder = tcnn.Encoding(
             n_input_dims=3,
