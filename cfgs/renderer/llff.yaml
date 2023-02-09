@@ -1,2 +1,2 @@
-use_ndc: true
+use_ndc: false
 flip_camera: 3

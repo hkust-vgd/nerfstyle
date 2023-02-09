@@ -110,7 +110,7 @@ class StyleTrainer(Trainer):
         # fixed_pose = torch.from_numpy(fixed_pose).to(self.device)
 
         for i, (image, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
-            frame_id = self.test_set.frame_str_ids[i]
+            frame_id = self.test_set.fns[i]
             image, pose = image.to(self.device), pose.to(self.device)
             style_images, style_ids = next(self.style_train_loader)
             style_images = style_images.to(self.device)
@@ -125,7 +125,7 @@ class StyleTrainer(Trainer):
             # visuals = torch.cat((rgb_output.unsqueeze(0), style_images))
             # collage = torchvision.utils.make_grid(visuals, nrow=4, padding=0)
             collage = torch.cat((rgb_output.unsqueeze(0), style_images), dim=-1)
-            save_path = image_dir / 'frame_{}.png'.format(frame_id)
+            save_path = image_dir / '{}.png'.format(frame_id)
             torchvision.utils.save_image(collage, save_path)
 
     def run_iter(self):

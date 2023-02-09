@@ -68,6 +68,21 @@ class Intrinsics:
         object.__setattr__(self, 'h', int(self.h))
         object.__setattr__(self, 'w', int(self.w))
 
+    @classmethod
+    def from_np(
+        cls,
+        intr_np: np.ndarray,
+        dims: Optional[Tuple[int, int]] = None
+    ) -> Intrinsics:
+        assert intr_np.shape == (4, 4)
+        cx, cy = intr_np[0, 2], intr_np[1, 2]
+        fx, fy = intr_np[0, 0], intr_np[1, 1]
+        h, w = int(cy * 2), int(cx * 2)
+        if dims is not None:
+            h, w = dims
+        intr = Intrinsics(h, w, fx, fy, cx, cy)
+        return intr
+
     def size(self) -> Tuple[int, int]:
         """
         Returns the frame dimensions.

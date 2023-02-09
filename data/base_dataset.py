@@ -1,18 +1,23 @@
 from abc import ABC
+from pathlib import Path
 from typing import List, Optional
 import numpy as np
 from torch.utils.data import Dataset
 
 from common import BBox, DatasetSplit, DatasetCoordSystem, Intrinsics
 from config import DatasetConfig
+import utils
 
 
 class BaseDataset(Dataset, ABC):
     """NeRF dataset base class."""
 
-    # Common interface of datasets:
+    # Interface properties
 
-    imgs: np.ndarray
+    fns: List[str]
+    """Array of image filenames (without extension)."""
+
+    images: np.ndarray
     """Array of images. Size should be [N, 3, H, W]."""
 
     poses: np.ndarray
@@ -21,9 +26,6 @@ class BaseDataset(Dataset, ABC):
     bbox: BBox
     """Bounding box that bounds the entire scene volume (but not \
         necessarily the camera origins)."""
-
-    frame_str_ids: List[str]
-    """String version of `frame_ids`. Used in output filenames."""
 
     intr: Intrinsics
     """Default camera intrinsic parameters."""
@@ -52,44 +54,58 @@ class BaseDataset(Dataset, ABC):
         assert self.cfg.root_path.exists(), 'Root path "{}" does not exist'.format(
             self.cfg.root_path)
 
-    def _alpha2white(self):
-        assert self.imgs.shape[1] == 4
-        rgb, alpha = self.imgs[:, :3], self.imgs[:, 3:]
-        self.imgs = rgb * alpha + (1 - alpha)
+        # Load images
+        image_paths = self._get_image_paths()
+        self.fns = [path.stem for path in image_paths]
+        self.images = np.stack([utils.parse_rgb(path) for path in image_paths])
+        if self.images.shape[1] == 4:
+            rgb, alpha = self.images[:, :3], self.images[:, 3:]
+            self.images = rgb * alpha + (1 - alpha)
 
-    def _preprocess_poses(self):
+        # Load poses
+        self.poses = self._get_poses()
         assert len(self.poses.shape) == 3
         assert self.poses.shape[1] == self.poses.shape[2] == 4
-
-        # Correct coordinate system
         if self.cfg.coord_type == DatasetCoordSystem.RDF:
             self.poses = self.poses[:, [0, 2, 1, 3]]
             self.poses[:, 2] *= -1
-
-        # Scale poses
         self.poses[:, :3, 3] *= self.cfg.scale
+        assert len(self.images) == len(self.poses)
 
-    def _init_frame_ids(self, frame_count: int) -> List[int]:
-        if self.max_count is None or self.max_count >= frame_count:
+        # Set frames
+        if self.max_count is None or self.max_count >= len(self):
             # Use all frames
-            frame_ids = np.arange(frame_count)
+            frame_ids = np.arange(len(self))
         else:
             assert self.max_count > 0, 'Invalid value for "max_count"'
             # Pick frames uniformly
-            frame_ids = np.linspace(0, frame_count, self.max_count + 1)[:-1]
+            frame_ids = np.linspace(0, len(self), self.max_count + 1)[:-1]
             frame_ids = np.round(frame_ids).astype(int)
 
-        width = len(str(frame_count))
-        self.frame_str_ids = ['{:0{width}d}'.format(i, width=width) for i in frame_ids]
+            self.fns = [self.fns[i] for i in frame_ids]
+            self.images = self.images[frame_ids]
+            self.poses = self.poses[frame_ids]
 
-        return list(frame_ids)
+        # Load intrinsic matrix(s)
+        self.intr = self._get_intr()
+
+        # Set bounding box
+        self.bbox = BBox.from_radius(self.cfg.bound)
+
+    def _get_image_paths(self) -> List[Path]:
+        pass
+
+    def _get_poses(self) -> np.ndarray:
+        pass
+
+    def _get_intr(self) -> Intrinsics:
+        pass
 
     def __getitem__(self, index):
-        return self.imgs[index], self.poses[index]
+        return self.images[index], self.poses[index]
 
     def __len__(self):
-        assert len(self.imgs) == len(self.poses)
-        return len(self.imgs)
+        return len(self.images)
 
     def __str__(self, name: Optional[str] = None) -> str:
         cls_name = self.__class__.__name__

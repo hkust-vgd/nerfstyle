@@ -309,7 +309,7 @@ class Trainer:
         # eval_losses: List[Dict[str, LossValue]] = []
 
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
-            frame_id = self.test_set.frame_str_ids[i]
+            frame_id = self.test_set.fns[i]
             img, pose = img.to(self.device), pose.to(self.device)
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
                 with self.ema.average_parameters():
@@ -317,7 +317,7 @@ class Trainer:
 
             _, h, w = img.shape
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
-            save_path = img_dir / 'frame_{}.png'.format(frame_id)
+            save_path = img_dir / '{}.png'.format(frame_id)
             torchvision.utils.save_image(rgb_output, save_path)
 
             # eval_losses.append(self.calc_loss(output))

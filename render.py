@@ -72,7 +72,7 @@ def main():
     @torch.no_grad()
     def render():
         for i, (_, pose) in tqdm(enumerate(test_loader), total=len(test_set)):
-            frame_id = test_set.frame_str_ids[i]
+            frame_id = test_set.fns[i]
             pose = pose.to(device)
             # ret_flags = ['trans_map'] if args.render_trans else None
 

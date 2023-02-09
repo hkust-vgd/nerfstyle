@@ -61,10 +61,10 @@ class Renderer(TensorModule):
 
         # Raymarching variables
         self.bound = bound
-        if self.cfg.use_ndc:
-            self.aabb = torch.tensor([-bound, -bound, -1., bound, bound, 0.99])
-        else:
-            self.aabb = torch.tensor([-bound, -bound, -bound, bound, bound, bound])
+        # if self.cfg.use_ndc:
+        #     self.aabb = torch.tensor([-bound, -bound, -1., bound, bound, 0.99])
+        # else:
+        self.aabb = torch.tensor([-bound, -bound, -bound, bound, bound, bound])
 
         self.cascade = 1 + ceil(log2(bound))
         grid_size = self.cfg.grid_size
@@ -172,9 +172,9 @@ class Renderer(TensorModule):
         rays: RayBatch
     ) -> Tuple[Tensor, Tensor]:
         z_hats = None
-        if self.cfg.use_ndc:
-            z_hats = rays.dirs[:, 2]
-            rays = rays.warp_ndc(1., self.intr)
+        # if self.cfg.use_ndc:
+        #     z_hats = rays.dirs[:, 2]
+        #     rays = rays.warp_ndc(1., self.intr)
 
         if self.local_step % self.cfg.update_iter == 0:
             self.update_state()
@@ -206,9 +206,9 @@ class Renderer(TensorModule):
         rays: RayBatch
     ) -> Tuple[Tensor, Tensor]:
         z_hats = None
-        if self.cfg.use_ndc:
-            z_hats = rays.dirs[:, 2]
-            rays = rays.warp_ndc(1., self.intr)
+        # if self.cfg.use_ndc:
+        #     z_hats = rays.dirs[:, 2]
+        #     rays = rays.warp_ndc(1., self.intr)
 
         nears, fars = raymarching.near_far_from_aabb(
             rays.origins, rays.dirs, self.aabb, self.cfg.min_near)
@@ -221,12 +221,12 @@ class Renderer(TensorModule):
         n_alive = N
         rays_alive = torch.arange(n_alive, dtype=torch.int32, device=self.device)
         rays_t = nears.clone()
-        if self.cfg.use_ndc:
-            nears_z = rays.lerp(nears)[:, 2]
-            rays_t_phy = (2 / (nears_z - 1) + 1) / z_hats
-            rays_t = torch.stack([rays_t, rays_t_phy], dim=-1)  # [N, 2]
-        else:
-            rays_t = rays_t[:, None]  # [N, 1]
+        # if self.cfg.use_ndc:
+        #     nears_z = rays.lerp(nears)[:, 2]
+        #     rays_t_phy = (2 / (nears_z - 1) + 1) / z_hats
+        #     rays_t = torch.stack([rays_t, rays_t_phy], dim=-1)  # [N, 2]
+        # else:
+        rays_t = rays_t[:, None]  # [N, 1]
 
         step = 0
         while step < self.cfg.max_steps:
@@ -319,9 +319,9 @@ class StyleRenderer(Renderer):
         style_images: torch.Tensor
     ) -> Tuple[Tensor, Tensor]:
         z_hats = None
-        if self.cfg.use_ndc:
-            z_hats = rays.dirs[:, 2]
-            rays = rays.warp_ndc(1., self.intr)
+        # if self.cfg.use_ndc:
+        #     z_hats = rays.dirs[:, 2]
+        #     rays = rays.warp_ndc(1., self.intr)
 
         nears, fars = raymarching.near_far_from_aabb(
             rays.origins, rays.dirs, self.aabb, self.cfg.min_near)
@@ -334,12 +334,12 @@ class StyleRenderer(Renderer):
         n_alive = N
         rays_alive = torch.arange(n_alive, dtype=torch.int32, device=self.device)
         rays_t = nears.clone()
-        if self.cfg.use_ndc:
-            nears_z = rays.lerp(nears)[:, 2]
-            rays_t_phy = (2 / (nears_z - 1) + 1) / z_hats
-            rays_t = torch.stack([rays_t, rays_t_phy], dim=-1)  # [N, 2]
-        else:
-            rays_t = rays_t[:, None]  # [N, 1]
+        # if self.cfg.use_ndc:
+        #     nears_z = rays.lerp(nears)[:, 2]
+        #     rays_t_phy = (2 / (nears_z - 1) + 1) / z_hats
+        #     rays_t = torch.stack([rays_t, rays_t_phy], dim=-1)  # [N, 2]
+        # else:
+        rays_t = rays_t[:, None]  # [N, 1]
 
         step = 0
         while step < self.cfg.max_steps:
