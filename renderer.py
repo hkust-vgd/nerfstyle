@@ -1,6 +1,5 @@
 import itertools
 from math import *
-from einops import rearrange
 from packaging import version as pver
 from typing import Dict, Optional, Tuple, TypeVar
 import torch

@@ -35,6 +35,7 @@ _backend = load(name='_grid_encoder',
                     'gridencoder.cu',
                     'bindings.cpp',
                 ]],
+                verbose=True
                 )
 
 __all__ = ['_backend']

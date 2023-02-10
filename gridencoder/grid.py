@@ -21,7 +21,7 @@ class _grid_encode(Function):
     @custom_fwd
     def forward(
         ctx, inputs, embeddings, offsets, per_level_scale, base_resolution,
-        calc_grad_inputs=False, gridtype=0, align_corners=False
+        calc_grad_inputs=False, gridtype=0, align_corners=False, style=0
     ):
         # inputs: [B, D], float in [0, 1]
         # embeddings: [sO, C], float
@@ -52,7 +52,7 @@ class _grid_encode(Function):
 
         _backend.grid_encode_forward(
             inputs, embeddings, offsets, outputs, B, D, C, L, S, H,
-            calc_grad_inputs, dy_dx, gridtype, align_corners)
+            calc_grad_inputs, dy_dx, gridtype, align_corners, style)
 
         # permute back to [B, L * C]
         outputs = outputs.permute(1, 0, 2).reshape(B, L * C)
@@ -61,6 +61,7 @@ class _grid_encode(Function):
         ctx.dims = [B, D, C, L, S, H, gridtype]
         ctx.calc_grad_inputs = calc_grad_inputs
         ctx.align_corners = align_corners
+        ctx.style = style
 
         return outputs
 
@@ -73,6 +74,7 @@ class _grid_encode(Function):
         B, D, C, L, S, H, gridtype = ctx.dims
         calc_grad_inputs = ctx.calc_grad_inputs
         align_corners = ctx.align_corners
+        style = ctx.style
 
         # grad: [B, L * C] --> [L, B, C]
         grad = grad.view(B, L, C).permute(1, 0, 2).contiguous()
@@ -86,13 +88,13 @@ class _grid_encode(Function):
 
         _backend.grid_encode_backward(
             grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, S, H,
-            calc_grad_inputs, dy_dx, grad_inputs, gridtype, align_corners)
+            calc_grad_inputs, dy_dx, grad_inputs, gridtype, align_corners, style)
 
         if calc_grad_inputs:
             grad_inputs = grad_inputs.to(inputs.dtype)
-            return grad_inputs, grad_embeddings, None, None, None, None, None, None
+            return grad_inputs, grad_embeddings, None, None, None, None, None, None, None
         else:
-            return None, grad_embeddings, None, None, None, None, None, None
+            return None, grad_embeddings, None, None, None, None, None, None, None
 
 
 grid_encode = _grid_encode.apply
@@ -152,7 +154,7 @@ class GridEncoder(nn.Module):
     def __repr__(self):
         return f"GridEncoder: input_dim={self.input_dim} num_levels={self.num_levels} level_dim={self.level_dim} resolution={self.base_resolution} -> {int(round(self.base_resolution * self.per_level_scale ** (self.num_levels - 1)))} per_level_scale={self.per_level_scale:.4f} params={tuple(self.embeddings.shape)} gridtype={self.gridtype} align_corners={self.align_corners}"
 
-    def forward(self, inputs, bound=1):
+    def forward(self, inputs, bound=1, style=0):
         # inputs: [..., input_dim], normalized real world positions in [-bound, bound]
         # return: [..., num_levels * level_dim]
 
@@ -165,7 +167,7 @@ class GridEncoder(nn.Module):
 
         outputs = grid_encode(
             inputs, self.embeddings, self.offsets, self.per_level_scale, self.base_resolution,
-            inputs.requires_grad, self.gridtype_id, self.align_corners)
+            inputs.requires_grad, self.gridtype_id, self.align_corners, style)
         outputs = outputs.view(prefix_shape + [self.output_dim])
 
         # print('outputs', outputs.shape, outputs.dtype, outputs.min().item(), outputs.max().item())

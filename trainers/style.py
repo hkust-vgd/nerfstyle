@@ -42,7 +42,7 @@ class StyleTrainer(Trainer):
 
         if cfg.style_image is ConfigValue.EmptyPassed:
             root_path = 'datasets/wikiart'
-            self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, max_images=8)
+            self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, max_images=128)
             self.style_train_loader = utils.cycle(DataLoader(
                 self.style_train_set, batch_size=1, shuffle=True))
         else:
@@ -52,7 +52,7 @@ class StyleTrainer(Trainer):
         self.logger.info('Loaded ' + str(self.style_train_set))
 
         self.model.cuda()
-        self._reset_optim(['x_style_embedders', 'color1_net', 'color2_net', 'style_net'])
+        self._reset_optim(['x_style_embedder', 'color1_net', 'color2_net', 'style_net'])
         self.renderer = StyleRenderer(self.model, self.renderer, self.render_cfg)
 
     def calc_loss(

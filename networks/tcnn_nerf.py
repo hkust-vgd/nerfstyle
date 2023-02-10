@@ -151,53 +151,10 @@ class StyleTCNerf(TensorModule):
         self.bounds_bbox = bbox
         self.use_dir = use_dir
 
-        pos_enc_cfg = self.cfg.pos_enc
-        max_res = pos_enc_cfg.max_res_coeff * torch.max(self.bounds_bbox.size).item()
-        per_lvl_scale = np.exp2(np.log2(max_res / pos_enc_cfg.min_res) / (pos_enc_cfg.n_lvls - 1))
-
-        self.x_density_embedder = tcnn.Encoding(
-            n_input_dims=3,
-            encoding_config={
-                'otype': 'HashGrid',
-                'n_levels': pos_enc_cfg.n_lvls,
-                'n_features_per_level': pos_enc_cfg.n_feats_per_lvl,
-                'log2_hashmap_size': pos_enc_cfg.hashmap_size,
-                'base_resolution': pos_enc_cfg.min_res,
-                'per_level_scale': per_lvl_scale
-            },
-            seed=self.cfg.network_seed,
-            dtype=enc_dtype
-        )
-
-        self.x_color_embedder = tcnn.Encoding(
-            n_input_dims=3,
-            encoding_config={
-                'otype': 'HashGrid',
-                'n_levels': pos_enc_cfg.n_lvls,
-                'n_features_per_level': pos_enc_cfg.n_feats_per_lvl,
-                'log2_hashmap_size': pos_enc_cfg.hashmap_size,
-                'base_resolution': pos_enc_cfg.min_res,
-                'per_level_scale': per_lvl_scale
-            },
-            seed=self.cfg.network_seed,
-            dtype=enc_dtype
-        )
-
-        self.x_style_embedders = torch.nn.ModuleList([
-            tcnn.Encoding(
-                n_input_dims=3,
-                encoding_config={
-                    'otype': 'HashGrid',
-                    'n_levels': pos_enc_cfg.n_lvls,
-                    'n_features_per_level': pos_enc_cfg.n_feats_per_lvl,
-                    'log2_hashmap_size': pos_enc_cfg.hashmap_size,
-                    'base_resolution': pos_enc_cfg.min_res,
-                    'per_level_scale': per_lvl_scale
-                },
-                seed=self.cfg.network_seed,
-                dtype=enc_dtype
-            ) for _ in range(2)
-        ])
+        max_bound = torch.max(self.bounds_bbox.size).item()
+        self.x_density_embedder = get_grid_encoder(self.cfg, max_bound, enc_dtype)
+        self.x_color_embedder = get_grid_encoder(self.cfg, max_bound, enc_dtype)
+        self.x_style_embedder = get_grid_encoder(self.cfg, max_bound, enc_dtype)
 
         self.d_embedder = None
         if use_dir:
@@ -289,7 +246,7 @@ class StyleTCNerf(TensorModule):
         else:
             style_images, style_ids = style_input
             # style_vectors = self.style_net(self.style_fx(style_images))
-            x_color_embedded = self.x_style_embedders[style_ids.item()](pts)
+            x_color_embedded = self.x_style_embedder(pts, style=style_ids.item())
 
         # style_vectors = torch.tile(style_vectors, (len(pts), 1))
         # x_color_embedded = torch.cat((x_color_embedded, style_vectors), dim=-1)
