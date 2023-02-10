@@ -48,12 +48,12 @@ class StyleTrainer(Trainer):
         else:
             self.style_train_set = SingleImage(cfg.style_image, size=(256, 256))
             self.style_train_loader = utils.cycle(DataLoader(self.style_train_set, batch_size=1))
+        self.style_test_loader = DataLoader(self.style_train_set, batch_size=1, shuffle=False)
         self.logger.info('Loaded ' + str(self.style_train_set))
 
         self.model.cuda()
         self._reset_optim(['x_style_embedders', 'color1_net', 'color2_net', 'style_net'])
-        self.renderer = StyleRenderer(self.model, self.renderer)
-        self.renderer.style_stage = True
+        self.renderer = StyleRenderer(self.model, self.renderer, self.render_cfg)
 
     def calc_loss(
         self,
@@ -106,27 +106,22 @@ class StyleTrainer(Trainer):
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         image_dir.mkdir()
 
-        # _, fixed_pose = self.test_set[0]
-        # fixed_pose = torch.from_numpy(fixed_pose).to(self.device)
-
         for i, (image, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.fns[i]
             image, pose = image.to(self.device), pose.to(self.device)
-            style_images, style_ids = next(self.style_train_loader)
-            style_images = style_images.to(self.device)
-            with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
-                with self.ema.average_parameters():
-                    output = self.renderer.render(
-                        pose, (style_images, style_ids), image, training=False)
+            for (style_image, style_id) in self.style_test_loader:
+                style_image = style_image.to(self.device)
+                with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
+                    with self.ema.average_parameters():
+                        output = self.renderer.render(
+                            pose, (style_image, style_id), image, training=False)
 
-            _, h, w = image.shape
-            rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
-            style_images = F.pad(style_images, pad=(0, 0, 0, 544), value=0)
-            # visuals = torch.cat((rgb_output.unsqueeze(0), style_images))
-            # collage = torchvision.utils.make_grid(visuals, nrow=4, padding=0)
-            collage = torch.cat((rgb_output.unsqueeze(0), style_images), dim=-1)
-            save_path = image_dir / '{}.png'.format(frame_id)
-            torchvision.utils.save_image(collage, save_path)
+                _, h, w = image.shape
+                rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
+                style_image = F.pad(style_image, pad=(0, 0, 0, h-256), value=0)
+                collage = torch.cat((rgb_output.unsqueeze(0), style_image), dim=-1)
+                save_path = image_dir / '{}_style{:d}.png'.format(frame_id, style_id.item())
+                torchvision.utils.save_image(collage, save_path)
 
     def run_iter(self):
         """

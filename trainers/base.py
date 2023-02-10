@@ -1,3 +1,4 @@
+from copy import copy
 from pathlib import Path
 import pickle
 import sys
@@ -117,8 +118,8 @@ class Trainer:
         # Initialize model and renderer
         if trainer is None:
             enc_dtype = None if self.train_cfg.enable_amp else torch.float32
-            self.model = TCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
-            # self.model = StyleTCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
+            # self.model = TCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
+            self.model = StyleTCNerf(self.net_cfg, self.train_set.bbox, enc_dtype)
 
             self.model = self.model.to(self.device)
             self.logger.info('Created model ' + str(type(self.model)))
@@ -132,8 +133,8 @@ class Trainer:
             self.renderer = trainer.renderer.to(self.device)
 
         # Initialize optimizer and miscellaneous components
-        self._reset_optim(['embedder', 'net'])
-        # self._reset_optim(['x_density_embedder', 'x_color_embedder', 'net'])
+        # self._reset_optim(['embedder', 'net'])
+        self._reset_optim(['x_density_embedder', 'x_color_embedder', 'net'])
 
     def _reset_optim(self, keywords=None):
         all_keys = [n for n, _ in self.model.named_parameters()]
@@ -164,7 +165,7 @@ class Trainer:
 
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optim, lr_lambda)
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.train_cfg.enable_amp)
-        self.ema = utils.EMA(train_params, decay=self.train_cfg.ema_decay)
+        self.ema = utils.EMA(self.model.parameters(), decay=self.train_cfg.ema_decay)
 
     def __getstate__(self):
         state_dict = {k: v for k, v in self.__dict__.items() if k in self.SAVE_KEYS}
@@ -306,7 +307,7 @@ class Trainer:
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         img_dir.mkdir()
 
-        # eval_losses: List[Dict[str, LossValue]] = []
+        eval_losses: List[Dict[str, LossValue]] = []
 
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.fns[i]
@@ -320,12 +321,12 @@ class Trainer:
             save_path = img_dir / '{}.png'.format(frame_id)
             torchvision.utils.save_image(rgb_output, save_path)
 
-            # eval_losses.append(self.calc_loss(output))
+            eval_losses.append(self.calc_loss(output))
 
-        # avg_loss = copy(eval_losses[0])
-        # avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
-        # avg_loss['psnr'].value = utils.compute_psnr(avg_loss['mse'].value)
-        # self.print_status(avg_loss, phase='TEST')
+        avg_loss = copy(eval_losses[0])
+        avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
+        avg_loss['psnr'].value = utils.compute_psnr(avg_loss['mse'].value)
+        self.print_status(avg_loss, phase='TEST')
 
     def _check_interval(self, interval, after=0, final=False):
         if interval <= 0:

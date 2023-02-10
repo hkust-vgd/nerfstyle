@@ -42,7 +42,7 @@ class WikiartDataset(Dataset):
 
         self.root_dir = Path(root_path)
         self.split = split
-        img_dir = self.root_dir / split.name.lower()
+        img_dir = self.root_dir / 'tmp'  # split.name.lower()
 
         self.paths = sorted(img_dir.glob('*.jpg'))
         if max_images is not None:

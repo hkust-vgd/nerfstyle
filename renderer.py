@@ -59,6 +59,8 @@ class Renderer(TensorModule):
         self.precrop_frac = precrop_frac
         # self.bg_color = torch.tensor(utils.color_str2rgb(bg_color))
 
+        self.update_occ = True
+
         # Raymarching variables
         self.bound = bound
         # if self.cfg.use_ndc:
@@ -169,29 +171,33 @@ class Renderer(TensorModule):
 
     def render_train(
         self,
-        rays: RayBatch
+        rays: RayBatch,
+        **kwargs
     ) -> Tuple[Tensor, Tensor]:
         z_hats = None
         # if self.cfg.use_ndc:
         #     z_hats = rays.dirs[:, 2]
         #     rays = rays.warp_ndc(1., self.intr)
 
-        if self.local_step % self.cfg.update_iter == 0:
+        if self.update_occ and (self.local_step % self.cfg.update_iter == 0):
             self.update_state()
 
         nears, fars = raymarching.near_far_from_aabb(
-            rays.origins, rays.dirs[:, :3], self.aabb, self.cfg.min_near)
+            rays.origins, rays.dirs, self.aabb, self.cfg.min_near)
 
-        counter = self.step_counter[self.local_step % STEP_CTR_SIZE]
-        counter.zero_()
-        self.local_step += 1
+        if self.update_occ:
+            counter = self.step_counter[self.local_step % STEP_CTR_SIZE]
+            counter.zero_()
+            self.local_step += 1
+        else:
+            counter = torch.zeros(2).to(self.step_counter)
 
         xyzs, dirs, deltas, rays_info = raymarching.march_rays_train(
             rays.origins, rays.dirs, z_hats, self.bound, self.density_bitfield,
             self.cascade, self.cfg.grid_size, nears, fars, counter, self.mean_count,
             True, 128, True, 0., self.cfg.max_steps, self.cfg.use_ndc)
 
-        rgbs, sigmas = self.model(xyzs, dirs)
+        rgbs, sigmas = self.model(xyzs, dirs=dirs, **kwargs)
         sigmas = sigmas * self.cfg.density_scale
 
         weights_sum, depth, image = raymarching.composite_rays_train(
@@ -203,7 +209,8 @@ class Renderer(TensorModule):
 
     def render_test(
         self,
-        rays: RayBatch
+        rays: RayBatch,
+        **kwargs
     ) -> Tuple[Tensor, Tensor]:
         z_hats = None
         # if self.cfg.use_ndc:
@@ -240,7 +247,7 @@ class Renderer(TensorModule):
                 self.bound, self.density_bitfield, self.cascade, self.cfg.grid_size,
                 nears, fars, 128, False, 0., self.cfg.max_steps, self.cfg.use_ndc)
 
-            rgbs, sigmas = self.model(xyzs, dirs)
+            rgbs, sigmas = self.model(xyzs, dirs=dirs, **kwargs)
             sigmas = sigmas * self.cfg.density_scale
 
             raymarching.composite_rays(
@@ -279,94 +286,19 @@ class StyleRenderer(Renderer):
     def __init__(
         self,
         model: StyleTCNerf,
-        base: Renderer
+        base: Renderer,
+        new_cfg: RendererConfig
     ):
         super().__init__(
             model, base.cfg, base.intr, base.bound, name='StyleRenderer'
         )
 
+        # TODO: Need to overwrite some of the render configs
+        self.cfg.max_steps = new_cfg.max_steps
+
         self.density_grid = base.density_grid
         self.density_bitfield = base.density_bitfield
-        self.style_stage = False
-
-    def render_style(
-        self,
-        rays: RayBatch,
-        style_images: torch.Tensor,
-        max_num_samples: int = 80
-    ):
-        nears, fars = raymarching.near_far_from_aabb(
-            rays.origins, rays.dirs, self.aabb, self.cfg.min_near)
-        tmp_counter = torch.zeros(2).to(self.step_counter)
-
-        xyzs, dirs, deltas, rays_info = raymarching.march_rays_train(
-            rays.origins, rays.dirs, None, self.bound, self.density_bitfield,
-            self.cascade, self.cfg.grid_size, nears, fars, tmp_counter, self.mean_count,
-            True, 128, True, 0., max_num_samples, False)
-
-        rgbs, sigmas = self.model(xyzs, dirs=dirs, style_input=style_images)
-        sigmas = sigmas * self.cfg.density_scale
-
-        weights_sum, _, pix_feats = raymarching.composite_rays_train(
-            sigmas, rgbs, deltas, rays_info, self.cfg.t_thresh, False)
-
-        pix_feats = pix_feats + (1 - weights_sum).unsqueeze(-1)
-        return pix_feats
-
-    def render_test(
-        self,
-        rays: RayBatch,
-        style_images: torch.Tensor
-    ) -> Tuple[Tensor, Tensor]:
-        z_hats = None
-        # if self.cfg.use_ndc:
-        #     z_hats = rays.dirs[:, 2]
-        #     rays = rays.warp_ndc(1., self.intr)
-
-        nears, fars = raymarching.near_far_from_aabb(
-            rays.origins, rays.dirs, self.aabb, self.cfg.min_near)
-
-        N = len(rays)
-        weights_sum = torch.zeros(N, dtype=torch.float32, device=self.device)
-        depth = torch.zeros(N, dtype=torch.float32, device=self.device)
-        image = torch.zeros(N, 3, dtype=torch.float32, device=self.device)
-
-        n_alive = N
-        rays_alive = torch.arange(n_alive, dtype=torch.int32, device=self.device)
-        rays_t = nears.clone()
-        # if self.cfg.use_ndc:
-        #     nears_z = rays.lerp(nears)[:, 2]
-        #     rays_t_phy = (2 / (nears_z - 1) + 1) / z_hats
-        #     rays_t = torch.stack([rays_t, rays_t_phy], dim=-1)  # [N, 2]
-        # else:
-        rays_t = rays_t[:, None]  # [N, 1]
-
-        step = 0
-        while step < self.cfg.max_steps:
-            n_alive = len(rays_alive)
-            if n_alive <= 0:
-                break
-
-            n_step = max(min(N // n_alive, 8), 1)
-            xyzs, dirs, deltas = raymarching.march_rays(
-                n_alive, n_step, rays_alive, rays_t, rays.origins, rays.dirs, z_hats,
-                self.bound, self.density_bitfield, self.cascade, self.cfg.grid_size,
-                nears, fars, 128, False, 0., self.cfg.max_steps, self.cfg.use_ndc)
-
-            rgbs, sigmas = self.model(xyzs, dirs=dirs, style_input=style_images)
-            sigmas = sigmas * self.cfg.density_scale
-
-            raymarching.composite_rays(
-                n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, self.cfg.use_ndc,
-                weights_sum, depth, image, self.cfg.t_thresh)
-
-            rays_alive = rays_alive[rays_alive >= 0]
-            step += n_step
-
-        image = image + (1 - weights_sum).unsqueeze(-1)
-        # depth = torch.clamp(depth - nears, min=0) / (fars - nears)
-
-        return image
+        self.update_occ = False
 
     def render(
         self: T,
@@ -384,8 +316,6 @@ class StyleRenderer(Renderer):
             pose, self.intr, image, patch=patch, precrop=precrop_frac,
             bsize=num_rays, camera_flip=self.cfg.flip_camera)
 
-        render_fn = self.render_style if training else self.render_test
-        # output['orig_map'], output['rgb_map'] = torch.split(
-        #     render_fn(rays, style_image), (3, 3), dim=-1)
-        output['rgb_map'] = render_fn(rays, style_image)
+        render_fn = self.render_train if training else self.render_test
+        output['rgb_map'], _ = render_fn(rays, style_input=style_image)
         return output

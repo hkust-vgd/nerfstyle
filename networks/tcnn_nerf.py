@@ -196,7 +196,7 @@ class StyleTCNerf(TensorModule):
                 },
                 seed=self.cfg.network_seed,
                 dtype=enc_dtype
-            ) for _ in range(8)
+            ) for _ in range(2)
         ])
 
         self.d_embedder = None
