@@ -56,7 +56,7 @@ template <uint32_t D, uint32_t C>
 __device__ uint32_t get_grid_index(const uint32_t gridtype, const bool align_corners, const uint32_t ch, const uint32_t hashmap_size, const uint32_t resolution, const uint32_t pos_grid[D], const uint32_t style) {
     uint32_t stride = 1;
     uint32_t index = 0;
-    const uint32_t max_styles = 128;  // hard code for now
+    const uint32_t max_styles = 512;  // hard code for now
 
     #pragma unroll
     for (uint32_t d = 0; d < D && stride <= hashmap_size; d++) {

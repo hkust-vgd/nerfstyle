@@ -6,5 +6,6 @@ intervals:
   log: 5
   ckpt: 5000
   test: 500
+style_lambda: 0.05
 photo_lambda: 0.000005
-defer_patch_size: 200
+defer_patch_size: 50

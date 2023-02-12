@@ -42,7 +42,7 @@ class StyleTrainer(Trainer):
 
         if cfg.style_image is ConfigValue.EmptyPassed:
             root_path = 'datasets/wikiart'
-            self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, max_images=128)
+            self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, max_images=512)
             self.style_train_loader = utils.cycle(DataLoader(
                 self.style_train_set, batch_size=1, shuffle=True))
         else:
