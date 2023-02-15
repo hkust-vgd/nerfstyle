@@ -25,6 +25,8 @@ class LLFFDataset(BaseDataset):
         super().__init__(cfg, split, max_count)
 
     def _get_image_paths(self) -> List[Path]:
+        if self.split == DatasetSplit.TEST:
+            return None
         return [self.root / f['file_path'] for f in self.split_json['frames']]
 
     def _get_poses(self) -> np.ndarray:

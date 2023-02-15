@@ -54,14 +54,6 @@ class BaseDataset(Dataset, ABC):
         assert self.cfg.root_path.exists(), 'Root path "{}" does not exist'.format(
             self.cfg.root_path)
 
-        # Load images
-        image_paths = self._get_image_paths()
-        self.fns = [path.stem for path in image_paths]
-        self.images = np.stack([utils.parse_rgb(path) for path in image_paths])
-        if self.images.shape[1] == 4:
-            rgb, alpha = self.images[:, :3], self.images[:, 3:]
-            self.images = rgb * alpha + (1 - alpha)
-
         # Load poses
         self.poses = self._get_poses()
         assert len(self.poses.shape) == 3
@@ -70,7 +62,21 @@ class BaseDataset(Dataset, ABC):
             self.poses = self.poses[:, [0, 2, 1, 3]]
             self.poses[:, 2] *= -1
         self.poses[:, :3, 3] *= self.cfg.scale
-        assert len(self.images) == len(self.poses)
+
+        # Load images
+        image_paths = self._get_image_paths()
+        self.has_gt = (image_paths is not None)
+        if self.has_gt:
+            self.fns = [path.stem for path in image_paths]
+            self.images = np.stack([utils.parse_rgb(path) for path in image_paths])
+            if self.images.shape[1] == 4:
+                rgb, alpha = self.images[:, :3], self.images[:, 3:]
+                self.images = rgb * alpha + (1 - alpha)
+            assert len(self.images) == len(self.poses)
+        else:
+            self.images = None
+            w = len(str(len(self)))
+            self.fns = ['frame_{:0{w}d}'.format(i, w=w) for i in range(len(self))]
 
         # Set frames
         if self.max_count is None or self.max_count >= len(self):
@@ -83,8 +89,9 @@ class BaseDataset(Dataset, ABC):
             frame_ids = np.round(frame_ids).astype(int)
 
             self.fns = [self.fns[i] for i in frame_ids]
-            self.images = self.images[frame_ids]
             self.poses = self.poses[frame_ids]
+            if self.has_gt:
+                self.images = self.images[frame_ids]
 
         # Load intrinsic matrix(s)
         self.intr = self._get_intr()
@@ -102,10 +109,12 @@ class BaseDataset(Dataset, ABC):
         pass
 
     def __getitem__(self, index):
-        return self.images[index], self.poses[index]
+        if self.has_gt:
+            return self.images[index], self.poses[index]
+        return None, self.poses[index]
 
     def __len__(self):
-        return len(self.images)
+        return len(self.poses)
 
     def __str__(self, name: Optional[str] = None) -> str:
         cls_name = self.__class__.__name__

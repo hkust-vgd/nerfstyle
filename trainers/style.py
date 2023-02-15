@@ -1,13 +1,15 @@
 from functools import partial
 from itertools import product
+from pathlib import Path
 from typing import Dict, List, Optional
 import time
 
 import einops
+import imageio
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-import torchvision
 from tqdm import tqdm
 
 from common import Box2D, DatasetSplit, LossValue
@@ -33,6 +35,9 @@ class StyleTrainer(Trainer):
         assert cfg.style_image is not None
         super().__init__(cfg, nargs, trainer)
 
+        self.tmp_dir = Path('/tmp/nerfRenderer')
+        self.tmp_dir.mkdir(exist_ok=True)
+
         # Intialize losses and style image
         fx_keys = ['relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1']
         self.fx = VGG16FeatureExtractor(fx_keys).to(self.device)
@@ -40,9 +45,12 @@ class StyleTrainer(Trainer):
         # self.style_loss = GramStyleLoss(fx_keys)
         self.photo_loss = MattingLaplacian(device=self.device)
 
+        self.num_styles = 64
+
         if cfg.style_image is ConfigValue.EmptyPassed:
             root_path = 'datasets/wikiart'
-            self.style_train_set = WikiartDataset(root_path, DatasetSplit.TRAIN, max_images=512)
+            self.style_train_set = WikiartDataset(
+                root_path, DatasetSplit.TRAIN, max_images=self.num_styles)
             self.style_train_loader = utils.cycle(DataLoader(
                 self.style_train_set, batch_size=1, shuffle=True))
         else:
@@ -54,6 +62,9 @@ class StyleTrainer(Trainer):
         self.model.cuda()
         self._reset_optim(['x_style_embedder', 'color1_net', 'color2_net', 'style_net'])
         self.renderer = StyleRenderer(self.model, self.renderer, self.render_cfg)
+        # self.model.x_style_embedder.initialize(
+        #     self.model.x_color_embedder.embeddings, num_styles=1)
+        # self.model.x_style_embedder.embeddings = self.model.x_color_embedder.embeddings
 
     def calc_loss(
         self,
@@ -106,22 +117,33 @@ class StyleTrainer(Trainer):
             self.iter_ctr, width=len(str(self.train_cfg.num_iterations)))
         image_dir.mkdir()
 
-        for i, (image, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
-            frame_id = self.test_set.fns[i]
-            image, pose = image.to(self.device), pose.to(self.device)
-            for (style_image, style_id) in self.style_test_loader:
-                style_image = style_image.to(self.device)
+        eval_once = (self.iter_ctr == 0)
+
+        for (style_image, style_id) in tqdm(self.style_test_loader, disable=eval_once):
+            style_image = style_image.to(self.device)
+
+            frames = []
+            for _, pose in self.test_loader:
+                pose = pose.to(self.device)
+
                 with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
                     with self.ema.average_parameters():
                         output = self.renderer.render(
-                            pose, (style_image, style_id), image, training=False)
+                            pose, (style_image, style_id), None, training=False)
 
-                _, h, w = image.shape
+                h, w = self.test_set.intr.h, self.test_set.intr.w
                 rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
-                style_image = F.pad(style_image, pad=(0, 0, 0, h-256), value=0)
-                collage = torch.cat((rgb_output.unsqueeze(0), style_image), dim=-1)
-                save_path = image_dir / '{}_style{:d}.png'.format(frame_id, style_id.item())
-                torchvision.utils.save_image(collage, save_path)
+                collage = utils.collage_h(rgb_output, style_image.squeeze(0))
+                frame = (collage.cpu().numpy() * 255).astype(np.uint8)
+                frames.append(einops.rearrange(frame, 'c h w -> h w c'))
+                # save_path = tmp_dir / '{}_style{:d}.png'.format(frame_id, style_id.item())
+                # torchvision.utils.save_image(collage, save_path)
+
+                out_path = image_dir / 'style{:d}.gif'.format(style_id.item())
+                imageio.mimsave(out_path, frames, fps=3.75)
+
+            if eval_once:
+                break
 
     def run_iter(self):
         """

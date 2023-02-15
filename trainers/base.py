@@ -311,22 +311,26 @@ class Trainer:
 
         for i, (img, pose) in tqdm(enumerate(self.test_loader), total=len(self.test_set)):
             frame_id = self.test_set.fns[i]
-            img, pose = img.to(self.device), pose.to(self.device)
+            pose = pose.to(self.device)
+            if self.test_set.has_gt:
+                img = img.to(self.device)
             with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
                 with self.ema.average_parameters():
                     output = self.renderer.render(pose, img, training=False)
 
-            _, h, w = img.shape
+            h, w = self.test_set.intr.h, self.test_set.intr.w
             rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
             save_path = img_dir / '{}.png'.format(frame_id)
             torchvision.utils.save_image(rgb_output, save_path)
 
-            eval_losses.append(self.calc_loss(output))
+            if self.test_set.has_gt:
+                eval_losses.append(self.calc_loss(output))
 
-        avg_loss = copy(eval_losses[0])
-        avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
-        avg_loss['psnr'].value = utils.compute_psnr(avg_loss['mse'].value)
-        self.print_status(avg_loss, phase='TEST')
+        if self.test_set.has_gt:
+            avg_loss = copy(eval_losses[0])
+            avg_loss['mse'].value = torch.mean(torch.stack([el['mse'].value for el in eval_losses]))
+            avg_loss['psnr'].value = utils.compute_psnr(avg_loss['mse'].value)
+            self.print_status(avg_loss, phase='TEST')
 
     def _check_interval(self, interval, after=0, final=False):
         if interval <= 0:

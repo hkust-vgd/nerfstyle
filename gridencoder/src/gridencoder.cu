@@ -492,3 +492,74 @@ void grid_encode_backward(const at::Tensor grad, const at::Tensor inputs, const 
     }));
     
 }
+
+
+template <typename scalar_t>
+__global__ void kernel_grid_initialize(
+    const scalar_t *ref_grid,
+    scalar_t *grid,
+    const uint32_t resolution,
+    const int *offsets,
+    const uint32_t level,
+    const uint32_t Ns
+) {
+    uint32_t pos_grid[3];
+    pos_grid[0] = blockIdx.x * blockDim.x + threadIdx.x;
+    pos_grid[1] = blockIdx.y * blockDim.y + threadIdx.y;
+    pos_grid[2] = blockIdx.z * blockDim.z + threadIdx.z;
+
+    if (pos_grid[0] > resolution || pos_grid[1] > resolution || pos_grid[2] > resolution)
+        return;
+
+    grid += (uint32_t)offsets[level] * 2;
+    ref_grid += (uint32_t)offsets[level] * 2;
+
+    const uint32_t hashmap_size = offsets[level + 1] - offsets[level];
+
+    uint32_t index = get_grid_index<3, 2>(0, true, 0, hashmap_size, resolution, pos_grid, 0);
+
+    scalar_t value0 = ref_grid[index];
+    scalar_t value1 = ref_grid[index + 1];
+    #pragma unroll
+    for (uint32_t s = 0; s < Ns; s++) {
+        uint32_t s_index = get_grid_index<3, 2>(0, true, 0, hashmap_size, resolution, pos_grid, s);
+        grid[index] = value0;
+        grid[index + 1] = value1;
+    }
+}
+
+
+template <typename scalar_t>
+void grid_initialize_cuda(const scalar_t *ref_embeddings, scalar_t *embeddings, const int *offsets, const uint32_t L, const float S, const uint32_t H, const uint32_t Ns) {
+    static constexpr uint32_t N_THREAD = 8;
+
+    for (uint32_t level = 0; level < L; level++) {
+        const uint32_t resolution = (uint32_t)floor(exp2f(level * S) * H);
+
+        const uint32_t blocks_per_grid = div_round_up(resolution + 1, N_THREAD);
+        const dim3 blocks_hashgrid = { blocks_per_grid, blocks_per_grid, blocks_per_grid };
+        const dim3 threads_hashgrid = { N_THREAD, N_THREAD, N_THREAD };
+
+        kernel_grid_initialize<scalar_t><<<blocks_hashgrid, threads_hashgrid>>>(ref_embeddings, embeddings, resolution, offsets, level, Ns);
+    }
+}
+
+
+void grid_initialize(const at::Tensor ref_embeddings, at::Tensor embeddings, const at::Tensor offsets, const uint32_t L, const float S, const uint32_t H, const uint32_t Ns) {
+    CHECK_CUDA(ref_embeddings);
+    CHECK_CUDA(embeddings);
+    CHECK_CUDA(offsets);
+
+    CHECK_CONTIGUOUS(ref_embeddings);
+    CHECK_CONTIGUOUS(embeddings);
+    CHECK_CONTIGUOUS(offsets);
+
+    CHECK_IS_FLOATING(ref_embeddings);
+    CHECK_IS_FLOATING(embeddings);
+    CHECK_IS_INT(offsets);
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+    ref_embeddings.scalar_type(), "grid_initialize", ([&] {
+        grid_initialize_cuda<scalar_t>(ref_embeddings.data_ptr<scalar_t>(), embeddings.data_ptr<scalar_t>(), offsets.data_ptr<int>(), L, S, H, Ns);
+    }));
+}

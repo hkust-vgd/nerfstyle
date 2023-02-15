@@ -4,7 +4,7 @@ precrop_fraction: 0.5
 precrop_iterations: 0
 initial_learning_rate: 0.01
 learning_rate_decay: 30000
-max_eval_count: 30
+max_eval_count: 15
 num_iterations: 30000
 test_before_train: false
 intervals:

@@ -2,6 +2,9 @@ from collections import defaultdict
 import functools
 import logging
 from pathlib import Path
+import random
+import shutil
+import string
 import sys
 from tabulate import tabulate
 from time import time
@@ -17,6 +20,23 @@ import torch
 import torch.nn.functional as F
 from torch_ema import ExponentialMovingAverage
 from tqdm import tqdm
+
+
+class BufferDir:
+    """ Context manager for creating / cleaning a temporary buffer directory. """
+    def __init__(self, root_dir: Path, k: int = 20) -> None:
+        assert root_dir.exists()
+        dir_name = ''.join(random.choices(string.ascii_letters, k=k))
+        self.path = root_dir / dir_name
+
+    def __enter__(self):
+        if self.path.exists():
+            shutil.rmtree(self.path)
+        self.path.mkdir(exist_ok=False)
+        return self.path
+
+    def __exit__(self, *_):
+        shutil.rmtree(self.path)
 
 
 class Clock:
@@ -89,7 +109,7 @@ class CustomFormatter(logging.Formatter):
 
 
 class EMA(ExponentialMovingAverage):
-    """Extended EMA class with enable/disable parameter.
+    """ Extended EMA class with enable/disable parameter.
     When enabled, EMA works as usual; when disabled, calls to EMA methods are ignored.
     Initally, EMA is disabled if `decay` is `None`, else enabled.
     This can be modified afterwards via setting `self.enabled`.
@@ -238,6 +258,25 @@ def color_str2rgb(color: str) -> Tuple[float]:
     color_map = mcolors.get_named_colors_mapping()
     assert color in color_map.keys(), 'Invalid color "{}"'.format(color)
     return mcolors.to_rgb(color_map[color])
+
+
+# Input: [C, H, W] or [1, C, H, W]
+def collage_h(img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
+    assert len(img1.shape) == len(img2.shape)
+    assert img1.shape[-3] == img2.shape[-3]
+    assert (len(img1.shape) == 3) or (len(img1.shape) == 4 and img1.shape[0] == 1)
+
+    h1, h2 = img1.shape[-2], img2.shape[-2]
+    h_out = max(h1, h2)
+    # pad parameter -> (left, right, top, bottom)
+    if h1 < h_out:
+        img1_pad = F.pad(img1, pad=(0, 0, 0, h_out - h1), value=0)
+        collage = torch.cat((img1_pad, img2), dim=-1)
+    else:
+        img2_pad = F.pad(img2, pad=(0, 0, 0, h_out - h2), value=0)
+        collage = torch.cat((img1, img2_pad), dim=-1)
+
+    return collage
 
 
 def compute_psnr(loss):

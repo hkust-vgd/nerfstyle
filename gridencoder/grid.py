@@ -151,8 +151,21 @@ class GridEncoder(nn.Module):
         std = 1e-4
         self.embeddings.data.uniform_(-std, std)
 
+    def initialize(self, embeddings, num_styles=64):
+        assert embeddings.shape == self.embeddings.shape
+
+        L = self.offsets.shape[0] - 1
+        S = np.log2(self.per_level_scale)
+        H = self.base_resolution
+
+        _backend.grid_initialize(embeddings, self.embeddings, self.offsets, L, S, H, num_styles)
+
     def __repr__(self):
-        return f"GridEncoder: input_dim={self.input_dim} num_levels={self.num_levels} level_dim={self.level_dim} resolution={self.base_resolution} -> {int(round(self.base_resolution * self.per_level_scale ** (self.num_levels - 1)))} per_level_scale={self.per_level_scale:.4f} params={tuple(self.embeddings.shape)} gridtype={self.gridtype} align_corners={self.align_corners}"
+        return f"GridEncoder: input_dim={self.input_dim} num_levels={self.num_levels} "\
+            "level_dim={self.level_dim} resolution={self.base_resolution} -> "\
+            "{int(round(self.base_resolution * self.per_level_scale ** (self.num_levels - 1)))} "\
+            "per_level_scale={self.per_level_scale:.4f} params={tuple(self.embeddings.shape)} "\
+            "gridtype={self.gridtype} align_corners={self.align_corners}"
 
     def forward(self, inputs, bound=1, style=0):
         # inputs: [..., input_dim], normalized real world positions in [-bound, bound]
