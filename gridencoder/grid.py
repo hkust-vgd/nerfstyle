@@ -151,14 +151,17 @@ class GridEncoder(nn.Module):
         std = 1e-4
         self.embeddings.data.uniform_(-std, std)
 
-    def initialize(self, embeddings, num_styles=64):
-        assert embeddings.shape == self.embeddings.shape
-
+    def initialize(self, ref_embeddings, ref_offsets, num_styles=64):
         L = self.offsets.shape[0] - 1
         S = np.log2(self.per_level_scale)
         H = self.base_resolution
 
-        _backend.grid_initialize(embeddings, self.embeddings, self.offsets, L, S, H, num_styles)
+        tmp = torch.zeros_like(self.embeddings)
+        _backend.grid_initialize(
+            ref_embeddings, tmp, ref_offsets, self.offsets, L, S, H, num_styles)
+        state_dict = self.state_dict()
+        state_dict['embeddings'] = tmp
+        self.load_state_dict(state_dict)
 
     def __repr__(self):
         return f"GridEncoder: input_dim={self.input_dim} num_levels={self.num_levels} "\

@@ -15,6 +15,7 @@ from tqdm import tqdm
 from common import Box2D, DatasetSplit, LossValue
 from config import BaseConfig, ConfigValue
 from data.style_dataset import WikiartDataset, SingleImage
+from gridencoder import GridEncoder
 from loss import AdaINStyleLoss, GramStyleLoss, MattingLaplacian
 from networks.fx import VGG16FeatureExtractor
 from renderer import StyleRenderer
@@ -45,7 +46,7 @@ class StyleTrainer(Trainer):
         # self.style_loss = GramStyleLoss(fx_keys)
         self.photo_loss = MattingLaplacian(device=self.device)
 
-        self.num_styles = 64
+        self.num_styles = 16
 
         if cfg.style_image is ConfigValue.EmptyPassed:
             root_path = 'datasets/wikiart'
@@ -62,9 +63,23 @@ class StyleTrainer(Trainer):
         self.model.cuda()
         self._reset_optim(['x_style_embedder', 'color1_net', 'color2_net', 'style_net'])
         self.renderer = StyleRenderer(self.model, self.renderer, self.render_cfg)
-        # self.model.x_style_embedder.initialize(
-        #     self.model.x_color_embedder.embeddings, num_styles=1)
-        # self.model.x_style_embedder.embeddings = self.model.x_color_embedder.embeddings
+
+        self.model.x_style_embedder = GridEncoder(
+            input_dim=3,
+            num_levels=16,
+            level_dim=2,
+            per_level_scale=self.model.x_color_embedder.per_level_scale,
+            base_resolution=16,
+            log2_hashmap_size=24,
+            gridtype='hash',
+            align_corners=True
+        ).cuda()
+        self.logger.info('Initializing encoder weights...')
+        self.model.x_style_embedder.initialize(
+            self.model.x_color_embedder.embeddings,
+            self.model.x_color_embedder.offsets,
+            num_styles=self.num_styles
+        )
 
     def calc_loss(
         self,
@@ -127,9 +142,9 @@ class StyleTrainer(Trainer):
                 pose = pose.to(self.device)
 
                 with torch.cuda.amp.autocast(enabled=self.train_cfg.enable_amp):
-                    with self.ema.average_parameters():
-                        output = self.renderer.render(
-                            pose, (style_image, style_id), None, training=False)
+                    # with self.ema.average_parameters():
+                    output = self.renderer.render(
+                        pose, (style_image, style_id), None, training=False)
 
                 h, w = self.test_set.intr.h, self.test_set.intr.w
                 rgb_output = einops.rearrange(output['rgb_map'], '(h w) c -> c h w', h=h, w=w)
@@ -142,7 +157,7 @@ class StyleTrainer(Trainer):
                 out_path = image_dir / 'style{:d}.gif'.format(style_id.item())
                 imageio.mimsave(out_path, frames, fps=3.75)
 
-            if eval_once:
+            if eval_once:  # and style_id.item() >= 4:
                 break
 
     def run_iter(self):

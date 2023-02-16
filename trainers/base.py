@@ -110,7 +110,7 @@ class Trainer:
         self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = get_dataset(self.dataset_cfg, split=DatasetSplit.VAL,
+        self.test_set = get_dataset(self.dataset_cfg, split=DatasetSplit.TEST,
                                     max_count=self.train_cfg.max_eval_count)
         self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
