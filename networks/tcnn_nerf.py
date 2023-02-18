@@ -9,7 +9,7 @@ from typing import Callable, Optional, Tuple
 from common import TensorModule, BBox
 from config import NetworkConfig
 from gridencoder import GridEncoder
-from networks.fx_vae import StyleVAEExtractor
+# from networks.rain_net import StyleVAEExtractor
 import utils
 
 
@@ -318,6 +318,6 @@ class StyleTCNerf(TensorModule):
 
             assert dirs is not None, 'need to implement this later'
             batch_fn = partial(self._forward, style_input=style_input)
-            rgbs = torch.empty((N, 3), device=self.device)            
+            rgbs = torch.empty((N, 3), device=self.device)
             utils.batch_exec(batch_fn, rgbs, sigmas, bsize=self.bsize)(pts, dirs)
             return rgbs, sigmas
