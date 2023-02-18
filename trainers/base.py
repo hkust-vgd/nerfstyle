@@ -110,7 +110,7 @@ class Trainer:
         self.train_loader = utils.cycle(DataLoader(self.train_set, batch_size=None, shuffle=True))
         self.logger.info('Loaded ' + str(self.train_set))
 
-        self.test_set = get_dataset(self.dataset_cfg, split=DatasetSplit.TEST,
+        self.test_set = get_dataset(self.dataset_cfg, split=DatasetSplit.VAL,
                                     max_count=self.train_cfg.max_eval_count)
         self.test_loader = DataLoader(self.test_set, batch_size=None, shuffle=False)
         self.logger.info('Loaded ' + str(self.test_set))
@@ -249,7 +249,7 @@ class Trainer:
         weight_reg_loss = 0
         weight_reg_lambda = self.train_cfg.weight_reg_lambda
         if weight_reg_lambda > 0.:
-            net_params = [p for n, p in self.model.named_parameters() if 'rgb_net' in n]
+            net_params = [p for n, p in self.model.named_parameters() if 'net' in n]
             norm_sum = torch.sum(torch.stack([p.norm(2) for p in net_params]))
             weight_reg_loss = norm_sum * weight_reg_lambda
             losses['weight_reg'] = LossValue('Weight Reg.', 'weight_reg_loss', weight_reg_loss)
@@ -324,7 +324,7 @@ class Trainer:
             torchvision.utils.save_image(rgb_output, save_path)
 
             if self.test_set.has_gt:
-                eval_losses.append(self.calc_loss(output))
+                eval_losses.append(self.calc_loss(output, mse_only=True))
 
         if self.test_set.has_gt:
             avg_loss = copy(eval_losses[0])

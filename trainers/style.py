@@ -15,7 +15,6 @@ from tqdm import tqdm
 from common import Box2D, DatasetSplit, LossValue
 from config import BaseConfig, ConfigValue
 from data.style_dataset import WikiartDataset, SingleImage
-from gridencoder import GridEncoder
 from loss import AdaINStyleLoss, GramStyleLoss, MattingLaplacian
 from networks.fx import VGG16FeatureExtractor
 from renderer import StyleRenderer
@@ -61,25 +60,11 @@ class StyleTrainer(Trainer):
         self.logger.info('Loaded ' + str(self.style_train_set))
 
         self.model.cuda()
-        self._reset_optim(['x_style_embedder', 'color1_net', 'color2_net', 'style_net'])
+        # self._reset_optim(['x_color_embedder', 'color1_net', 'color2_net', 'style_net'])
         self.renderer = StyleRenderer(self.model, self.renderer, self.render_cfg)
 
-        self.model.x_style_embedder = GridEncoder(
-            input_dim=3,
-            num_levels=16,
-            level_dim=2,
-            per_level_scale=self.model.x_color_embedder.per_level_scale,
-            base_resolution=16,
-            log2_hashmap_size=24,
-            gridtype='hash',
-            align_corners=True
-        ).cuda()
-        self.logger.info('Initializing encoder weights...')
-        self.model.x_style_embedder.initialize(
-            self.model.x_color_embedder.embeddings,
-            self.model.x_color_embedder.offsets,
-            num_styles=self.num_styles
-        )
+        self.model.init_style(num_styles=self.num_styles)
+        self._reset_optim(['x_style_embedder', 'color1_net', 'color2_net'])
 
     def calc_loss(
         self,
@@ -154,10 +139,10 @@ class StyleTrainer(Trainer):
                 # save_path = tmp_dir / '{}_style{:d}.png'.format(frame_id, style_id.item())
                 # torchvision.utils.save_image(collage, save_path)
 
-                out_path = image_dir / 'style{:d}.gif'.format(style_id.item())
-                imageio.mimsave(out_path, frames, fps=3.75)
+            out_path = image_dir / 'style{:d}.gif'.format(style_id.item())
+            imageio.mimsave(out_path, frames, fps=3.75)
 
-            if eval_once:  # and style_id.item() >= 4:
+            if eval_once and style_id.item() >= 3:
                 break
 
     def run_iter(self):
@@ -204,7 +189,7 @@ class StyleTrainer(Trainer):
         self.scaler.update()
         if old_scale <= self.scaler.get_scale():
             self.scheduler.step()
-        self.ema.update()
+        # self.ema.update()
 
         # Update counter after backprop
         self.iter_ctr += 1

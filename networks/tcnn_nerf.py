@@ -1,14 +1,16 @@
+from functools import partial
 import numpy as np
 import torch
 from torch.autograd import Function
 from torch.cuda.amp import custom_bwd, custom_fwd
 import tinycudann as tcnn
-from typing import Optional
+from typing import Callable, Optional, Tuple
 
 from common import TensorModule, BBox
 from config import NetworkConfig
 from gridencoder import GridEncoder
 from networks.fx_vae import StyleVAEExtractor
+import utils
 
 
 def get_grid_encoder(
@@ -121,6 +123,8 @@ class TCNerf(TensorModule):
             seed=self.cfg.network_seed
         )
 
+    __call__: Callable[..., Tuple[torch.Tensor, torch.Tensor]]
+
     def forward(self, pts, dirs=None, **kwargs):
         pts = self.bounds_bbox.normalize(pts)
         x_embedded = self.x_embedder(pts)
@@ -154,7 +158,8 @@ class StyleTCNerf(TensorModule):
         max_bound = torch.max(self.bounds_bbox.size).item()
         self.x_density_embedder = get_grid_encoder(self.cfg, max_bound, enc_dtype)
         self.x_color_embedder = get_grid_encoder(self.cfg, max_bound, enc_dtype)
-        self.x_style_embedder = get_grid_encoder(self.cfg, max_bound, enc_dtype)
+        self.x_style_embedder = None
+        self.bsize = 1500000
 
         self.d_embedder = None
         if use_dir:
@@ -211,26 +216,61 @@ class StyleTCNerf(TensorModule):
             seed=self.cfg.network_seed
         )
 
-        # style_in_dims = 512
-        # style_out_dims = 32
+    # def init_style(self):
+    #     style_in_dims = 512
+    #     style_out_dims = 32
 
-        # self.style_fx = StyleVAEExtractor().cuda()
-        # self.style_net = tcnn.Network(
-        #     n_input_dims=style_in_dims,
-        #     n_output_dims=style_out_dims,
-        #     network_config={
-        #         'otype': 'FullyFusedMLP',
-        #         'activation': 'ReLU',
-        #         'output_activation': 'None',
-        #         'n_neurons': 64,
-        #         'n_hidden_layers': 3
-        #     },
-        #     seed=self.cfg.network_seed
-        # )
+    #     self.style_fx = StyleVAEExtractor().cuda()
+    #     self.style_net = tcnn.Network(
+    #         n_input_dims=style_in_dims,
+    #         n_output_dims=style_out_dims,
+    #         network_config={
+    #             'otype': 'FullyFusedMLP',
+    #             'activation': 'ReLU',
+    #             'output_activation': 'None',
+    #             'n_neurons': 64,
+    #             'n_hidden_layers': 3
+    #         },
+    #         seed=self.cfg.network_seed
+    #     )
+
+    #     # reinit
+    #     self.color1_net = tcnn.Network(
+    #         n_input_dims=64,
+    #         n_output_dims=16,
+    #         network_config={
+    #             'otype': 'FullyFusedMLP',
+    #             'activation': 'ReLU',
+    #             'output_activation': 'None',
+    #             'n_neurons': self.cfg.density_hidden_dims,
+    #             'n_hidden_layers': self.cfg.density_hidden_layers
+    #         },
+    #         seed=self.cfg.network_seed
+    #     )
 
         # self.fixed_style_vectors = torch.load('style_vectors.pth').cuda()
 
-    def forward(self, pts, dirs=None, style_input=None):
+    def init_style(self, num_styles):
+        self.x_style_embedder = GridEncoder(
+            input_dim=3,
+            num_levels=16,
+            level_dim=2,
+            per_level_scale=self.x_color_embedder.per_level_scale,
+            base_resolution=16,
+            log2_hashmap_size=20,
+            gridtype='hash',
+            align_corners=True
+        ).cuda()
+
+        self.x_style_embedder.initialize(
+            self.x_color_embedder.embeddings,
+            self.x_color_embedder.offsets,
+            num_styles=num_styles
+        )
+
+    __call__: Callable[..., Tuple[torch.Tensor, torch.Tensor]]
+
+    def _forward(self, pts, dirs=None, style_input=None):
         pts = self.bounds_bbox.normalize(pts)
         x_embedded = self.x_density_embedder(pts)
         density_output = self.density_net(x_embedded)
@@ -245,11 +285,13 @@ class StyleTCNerf(TensorModule):
             x_color_embedded = self.x_color_embedder(pts)
         else:
             style_images, style_ids = style_input
-            # style_vectors = self.style_net(self.style_fx(style_images))
             x_color_embedded = self.x_style_embedder(pts, style=style_ids.item())
 
-        # style_vectors = torch.tile(style_vectors, (len(pts), 1))
-        # x_color_embedded = torch.cat((x_color_embedded, style_vectors), dim=-1)
+            # style_vectors = self.style_net(self.style_fx(style_images))
+            # x_color_embedded = self.x_color_embedder(pts)
+            # style_vectors = torch.tile(style_vectors, (len(pts), 1))
+            # x_color_embedded = torch.cat((x_color_embedded, style_vectors), dim=-1)
+
         color1_output = self.color1_net(x_color_embedded)
 
         if self.use_dir:
@@ -261,3 +303,21 @@ class StyleTCNerf(TensorModule):
 
         rgbs = self.color2_net(rgb_input)
         return rgbs, sigmas
+
+    def forward(self, pts, dirs=None, style_input=None):
+        N = len(pts)
+        if N < self.bsize:
+            return self._forward(pts, dirs, style_input)
+        else:
+            sigmas = torch.empty((N, 1), device=self.device)
+
+            if dirs is None and style_input is None:
+                batch_fn = partial(self._forward, dirs=None, style_input=None)
+                utils.batch_exec(batch_fn, sigmas, bsize=self.bsize)(pts)
+                return sigmas
+
+            assert dirs is not None, 'need to implement this later'
+            batch_fn = partial(self._forward, style_input=style_input)
+            rgbs = torch.empty((N, 3), device=self.device)            
+            utils.batch_exec(batch_fn, rgbs, sigmas, bsize=self.bsize)(pts, dirs)
+            return rgbs, sigmas

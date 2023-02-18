@@ -49,7 +49,7 @@ class WikiartDataset(Dataset):
             self.paths = self.paths[:max_images]
 
         transforms = [
-            RandomResizedCrop(256, scale=(0.5, 1.0), ratio=(1.0, 1.0)),
+            RandomResizedCrop(256, scale=(0.4, 0.6), ratio=(1.0, 1.0)),
             ToTensor()
         ]
 

@@ -8,4 +8,4 @@ intervals:
   test: 500
 style_lambda: 0.05
 photo_lambda: 0.000005
-defer_patch_size: 50
+defer_patch_size: 200
