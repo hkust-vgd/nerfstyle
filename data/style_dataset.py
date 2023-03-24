@@ -13,14 +13,14 @@ class SingleImage(Dataset):
     def __init__(
         self,
         image_path: Path,
-        size: Tuple[int, int]
+        longer_edge: int
     ):
         self.image_name = image_path.name
-        style_image_np = utils.parse_rgb(image_path, size=size)
+        style_image_np = utils.parse_rgb(image_path, size=longer_edge)
         self.style_image = torch.tensor(style_image_np)
 
     def __getitem__(self, _):
-        return (self.style_image, 0)
+        return self.style_image
 
     def __len__(self):
         return 1
@@ -65,7 +65,7 @@ class WikiartDataset(Dataset):
         img = Image.open(self.paths[index])
         img = img.convert('RGB')
         img_tensor = self.transform(img)
-        return (img_tensor, index)
+        return img_tensor
 
     def __len__(self):
         if self.fix_id:

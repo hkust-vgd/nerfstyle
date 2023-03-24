@@ -88,12 +88,12 @@ class VGGFeatureExtractor(torch.nn.Module):
 
 class VGG16FeatureExtractor(VGGFeatureExtractor):
     layers = [[0, 2], [5, 7], [10, 12, 14], [17, 19, 21], [24, 26, 28]]
-    model = torchvision.models.vgg16(weights='DEFAULT')
+    model = torchvision.models.vgg16(weights='DEFAULT').eval()
 
 
 class VGG19FeatureExtractor(VGGFeatureExtractor):
     layers = [[0, 2], [5, 7], [10, 12, 14, 16], [19, 21, 23, 25], [28, 30, 32, 34]]
-    model = torchvision.models.vgg19(weights='DEFAULT')
+    model = torchvision.models.vgg19(weights='DEFAULT').eval()
 
 
 def test_fx(fx_type, H=224, W=224):

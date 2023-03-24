@@ -9,7 +9,7 @@ from torchtyping import TensorType
 from common import Box2D, Intrinsics, RayBatch, TensorModule
 from config import RendererConfig
 from nerf_lib import nerf_lib
-from networks.tcnn_nerf import TCNerf, StyleTCNerf
+from networks.style_nerf import StyleTCNerf
 import raymarching
 import utils
 
@@ -28,13 +28,13 @@ def custom_meshgrid(*args):
 class Renderer(TensorModule):
     def __init__(
         self: T,
-        model: TCNerf,
+        model: StyleTCNerf,
         cfg: RendererConfig,
         intr: Intrinsics,
         bound: float,
-        # bg_color: str,
         name: str = 'Renderer',
-        precrop_frac: float = 1.
+        precrop_frac: float = 1.,
+        raymarch_channels: int = 3
     ) -> None:
         """
         NeRF renderer.
@@ -56,7 +56,7 @@ class Renderer(TensorModule):
         self.intr = intr
         self._use_precrop = False
         self.precrop_frac = precrop_frac
-        # self.bg_color = torch.tensor(utils.color_str2rgb(bg_color))
+        self.raymarch_channels = raymarch_channels
 
         self.update_occ = True
 
@@ -77,9 +77,43 @@ class Renderer(TensorModule):
         self.mean_count = 0
         self.mean_density = 0
 
-        self.to(self.model.device)
         self.logger.info('Renderer "{}" initialized'.format(name))
         self.clock = utils.Clock()
+
+    def to(self, *args, **kwargs):
+        self.model.to(*args, **kwargs)
+        return super().to(*args, **kwargs)
+
+    def state_dict(self):
+        state_dict = {'model': self.model.state_dict()}
+        keys = [
+            'intr', 'precrop_frac', 'raymarch_channels', 'bound',
+            'density_grid', 'density_bitfield', 'step_counter',
+            'local_step', 'mean_count', 'mean_density'
+        ]
+        for k in keys:
+            v = getattr(self, k)
+            if torch.is_tensor(v):
+                v = v.detach()
+            state_dict[k] = v
+
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        validate_keys = ['intr', 'precrop_frac', 'raymarch_channels', 'bound']
+        for k in validate_keys:
+            if getattr(self, k) != state_dict[k]:
+                self.logger.error('Values do not match when loading key "{}"'.format(k))
+
+        self.model.load_state_dict(state_dict['model'])
+
+        load_keys = ['density_grid', 'density_bitfield', 'step_counter',
+                     'local_step', 'mean_count', 'mean_density']
+        for k in load_keys:
+            v = state_dict[k]
+            if torch.is_tensor(v):
+                v = v.to(self.device)
+            setattr(self, k, v)
 
     @property
     def use_precrop(self):
@@ -201,10 +235,13 @@ class Renderer(TensorModule):
 
         weights_sum, depth, image = raymarching.composite_rays_train(
             sigmas, rgbs, deltas, rays_info, self.cfg.t_thresh, self.cfg.use_ndc)
+        classes = image[:, 3:]
+        image = image[:, :3]
+
         image = image + (1 - weights_sum).unsqueeze(-1)
         depth = torch.clamp(depth - nears, min=0) / (fars - nears)
 
-        return image, depth
+        return image, depth, classes
 
     def render_test(
         self,
@@ -222,7 +259,7 @@ class Renderer(TensorModule):
         N = len(rays)
         weights_sum = torch.zeros(N, dtype=torch.float32, device=self.device)
         depth = torch.zeros(N, dtype=torch.float32, device=self.device)
-        image = torch.zeros(N, 3, dtype=torch.float32, device=self.device)
+        image = torch.zeros(N, self.raymarch_channels, dtype=torch.float32, device=self.device)
 
         n_alive = N
         rays_alive = torch.arange(n_alive, dtype=torch.int32, device=self.device)
@@ -256,10 +293,13 @@ class Renderer(TensorModule):
             rays_alive = rays_alive[rays_alive >= 0]
             step += n_step
 
+        classes = image[:, 3:]
+        image = image[:, :3]
+
         image = image + (1 - weights_sum).unsqueeze(-1)
         depth = torch.clamp(depth - nears, min=0) / (fars - nears)
 
-        return image, depth
+        return image, depth, classes
 
     def render(
         self: T,
@@ -277,44 +317,45 @@ class Renderer(TensorModule):
             bsize=num_rays, camera_flip=self.cfg.flip_camera)
 
         render_fn = self.render_train if training else self.render_test
-        output['rgb_map'], output['trans_map'] = render_fn(rays)
+        # output['rgb_map'], output['trans_map'], _ = render_fn(rays)
+        output['rgb_map'], output['trans_map'], output['classes'] = render_fn(rays)
         return output
 
 
-class StyleRenderer(Renderer):
-    def __init__(
-        self,
-        model: StyleTCNerf,
-        base: Renderer,
-        new_cfg: RendererConfig
-    ):
-        super().__init__(
-            model, base.cfg, base.intr, base.bound, name='StyleRenderer'
-        )
+# class StyleRenderer(Renderer):
+#     def __init__(
+#         self,
+#         model: StyleTCNerf,
+#         base: Renderer,
+#         new_cfg: RendererConfig
+#     ):
+#         super().__init__(
+#             model, base.cfg, base.intr, base.bound, name='StyleRenderer'
+#         )
 
-        # TODO: Need to overwrite some of the render configs
-        self.cfg.max_steps = new_cfg.max_steps
+#         # TODO: Need to overwrite some of the render configs
+#         self.cfg.max_steps = new_cfg.max_steps
 
-        self.density_grid = base.density_grid
-        self.density_bitfield = base.density_bitfield
-        self.update_occ = False
+#         self.density_grid = base.density_grid
+#         self.density_bitfield = base.density_bitfield
+#         self.update_occ = False
 
-    def render(
-        self: T,
-        pose: TensorType[4, 4],
-        style_image: TensorType['H', 'W', 3],
-        image: Optional[TensorType['H', 'W', 3]] = None,
-        patch: Optional[Box2D] = None,
-        num_rays: Optional[int] = None,
-        training: bool = True
-    ) -> Dict[str, torch.Tensor]:
-        output = {}
+#     def render(
+#         self: T,
+#         pose: TensorType[4, 4],
+#         style_image: TensorType['H', 'W', 3],
+#         image: Optional[TensorType['H', 'W', 3]] = None,
+#         patch: Optional[Box2D] = None,
+#         num_rays: Optional[int] = None,
+#         training: bool = True
+#     ) -> Dict[str, torch.Tensor]:
+#         output = {}
 
-        precrop_frac = self.precrop_frac if self._use_precrop else 1.
-        rays, output['target'] = nerf_lib.generate_rays(
-            pose, self.intr, image, patch=patch, precrop=precrop_frac,
-            bsize=num_rays, camera_flip=self.cfg.flip_camera)
+#         precrop_frac = self.precrop_frac if self._use_precrop else 1.
+#         rays, output['target'] = nerf_lib.generate_rays(
+#             pose, self.intr, image, patch=patch, precrop=precrop_frac,
+#             bsize=num_rays, camera_flip=self.cfg.flip_camera)
 
-        render_fn = self.render_train if training else self.render_test
-        output['rgb_map'], _ = render_fn(rays, style_input=style_image)
-        return output
+#         render_fn = self.render_train if training else self.render_test
+#         output['rgb_map'], _ = render_fn(rays, style_input=style_image)
+#         return output

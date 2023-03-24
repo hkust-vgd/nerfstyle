@@ -4,6 +4,7 @@
 
 datasets
 networks/unused
+style_segs
 raymarching/build
 runs
 pretrained

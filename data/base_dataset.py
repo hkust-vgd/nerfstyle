@@ -4,9 +4,12 @@ from typing import List, Optional
 import numpy as np
 from torch.utils.data import Dataset
 
-from common import BBox, DatasetSplit, DatasetCoordSystem, Intrinsics
+from common import BBox, DatasetSplit, Intrinsics
 from config import DatasetConfig
 import utils
+
+import einops
+import torch
 
 
 class BaseDataset(Dataset, ABC):
@@ -58,9 +61,6 @@ class BaseDataset(Dataset, ABC):
         self.poses = self._get_poses()
         assert len(self.poses.shape) == 3
         assert self.poses.shape[1] == self.poses.shape[2] == 4
-        if self.cfg.coord_type == DatasetCoordSystem.RDF:
-            self.poses = self.poses[:, [0, 2, 1, 3]]
-            self.poses[:, 2] *= -1
         self.poses[:, :3, 3] *= self.cfg.scale
 
         # Load images
@@ -68,6 +68,10 @@ class BaseDataset(Dataset, ABC):
         self.has_gt = (image_paths is not None)
         if self.has_gt:
             self.fns = [path.stem for path in image_paths]
+            if len(set(self.fns)) != len(self.fns):
+                # Include parent directory name
+                self.fns = [path.parent.stem + '_' + path.stem for path in image_paths]
+
             self.images = np.stack([utils.parse_rgb(path) for path in image_paths])
             if self.images.shape[1] == 4:
                 rgb, alpha = self.images[:, :3], self.images[:, 3:]
@@ -77,6 +81,25 @@ class BaseDataset(Dataset, ABC):
             self.images = None
             w = len(str(len(self)))
             self.fns = ['frame_{:0{w}d}'.format(i, w=w) for i in range(len(self))]
+
+        # Load segment groups
+        self.seg_groups, self.num_classes = None, 0
+        if self.split == DatasetSplit.TRAIN:
+            self.seg_groups = self._get_seg_groups()
+            unique_groups = np.unique(self.seg_groups)
+            self.num_classes = len(unique_groups)
+            assert self.seg_groups.shape[-2:] == self.images.shape[-2:]
+            assert np.all(unique_groups == np.arange(self.num_classes))
+
+        # Color transform
+        if self.cfg.ct_image is not None and self.images is not None:
+            gt_images = einops.rearrange(self.images, 'n c h w -> n h w c')
+            gt_images = torch.from_numpy(gt_images).cuda()
+            style_image = utils.parse_rgb(self.cfg.ct_image)
+            style_image = einops.rearrange(style_image, 'c h w -> h w c')
+            style_image = torch.from_numpy(style_image).cuda()
+            ct_result, _ = utils.match_colors_for_image_set(gt_images, style_image)
+            self.images = einops.rearrange(ct_result, 'n h w c -> n c h w').cpu().numpy()
 
         # Set frames
         if self.max_count is None or self.max_count >= len(self):
@@ -105,10 +128,18 @@ class BaseDataset(Dataset, ABC):
     def _get_poses(self) -> np.ndarray:
         pass
 
+    def _get_seg_groups(self) -> np.ndarray:
+        pass
+
     def _get_intr(self) -> Intrinsics:
         pass
 
     def __getitem__(self, index):
+        if self.seg_groups is not None:
+            seg_groups = (self.seg_groups[index]).astype(np.float32)
+            image = np.concatenate((self.images[index], seg_groups[None]), axis=0)
+            return image, self.poses[index]
+
         if self.has_gt:
             return self.images[index], self.poses[index]
         return None, self.poses[index]

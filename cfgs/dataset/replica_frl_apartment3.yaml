@@ -1,9 +1,9 @@
 root_path: ~/datasets/replica_all/
 type: Replica
 bound: 2.0
-scale: 0.33
+scale: 0.25
 replica_cfg:
-  name: office3
+  name: frl_apartment3
   focal_ratio: 0.5
-  traj_ids: [7, 8, 12, 41, 45, 49, 52, 53, 56, 58, 67, 68, 69, 71, 75]
+  traj_ids: [3, 13, 26, 40, 47]
   black2white: true

@@ -18,8 +18,13 @@ import numpy as np
 from PIL import Image
 import torch
 import torch.nn.functional as F
+from torch.autograd import Function
+from torch.cuda.amp import custom_bwd, custom_fwd
 from torch_ema import ExponentialMovingAverage
 from tqdm import tqdm
+
+
+# TODO: Put these in smaller classes and delete useless ones
 
 
 class BufferDir:
@@ -254,6 +259,42 @@ def batch_exec(
     return batch_func
 
 
+def match_colors_for_image_set(image_set, style_img):
+    """
+    image_set: [N, H, W, 3]
+    style_img: [H, W, 3]
+    """
+    sh = image_set.shape
+    image_set = image_set.view(-1, 3)
+    style_img = style_img.view(-1, 3).to(image_set.device)
+
+    mu_c = image_set.mean(0, keepdim=True)
+    mu_s = style_img.mean(0, keepdim=True)
+
+    cov_c = torch.matmul((image_set - mu_c).transpose(1, 0), image_set - mu_c) / float(image_set.size(0))
+    cov_s = torch.matmul((style_img - mu_s).transpose(1, 0), style_img - mu_s) / float(style_img.size(0))
+
+    u_c, sig_c, _ = torch.svd(cov_c)
+    u_s, sig_s, _ = torch.svd(cov_s)
+
+    u_c_i = u_c.transpose(1, 0)
+    u_s_i = u_s.transpose(1, 0)
+
+    scl_c = torch.diag(1.0 / torch.sqrt(torch.clamp(sig_c, 1e-8, 1e8)))
+    scl_s = torch.diag(torch.sqrt(torch.clamp(sig_s, 1e-8, 1e8)))
+
+    tmp_mat = u_s @ scl_s @ u_s_i @ u_c @ scl_c @ u_c_i
+    tmp_vec = mu_s.view(1, 3) - mu_c.view(1, 3) @ tmp_mat.T
+
+    image_set = image_set @ tmp_mat.T + tmp_vec.view(1, 3)
+    image_set = image_set.contiguous().clamp_(0.0, 1.0).view(sh)
+
+    color_tf = torch.eye(4).float().to(tmp_mat.device)
+    color_tf[:3, :3] = tmp_mat
+    color_tf[:3, 3:4] = tmp_vec.T
+    return image_set, color_tf
+
+
 def color_str2rgb(color: str) -> Tuple[float]:
     color_map = mcolors.get_named_colors_mapping()
     assert color in color_map.keys(), 'Invalid color "{}"'.format(color)
@@ -383,10 +424,16 @@ def reshape(*tensors: torch.Tensor, shape: Tuple[int]) -> Tuple[torch.Tensor]:
 
 def parse_rgb(
     path: Union[str, Path],
-    size: Optional[Tuple[int, int]] = None
+    size: Optional[Union[Tuple[int, int], int]] = None
 ) -> np.ndarray:
     img = Image.open(path)
     if size is not None:
+        if isinstance(size, int):
+            img_w, img_h = img.size
+            if img_w > img_h:
+                size = (size, int(size * img_h / img_w))
+            else:
+                size = (int(size * img_w / img_h), size)
         img = img.resize(size)
 
     img_np = np.array(img, dtype=np.float32) / 255.0
@@ -441,14 +488,26 @@ def rmtree(path: Path):
         path.rmdir()
 
 
-def to_device(old_dict: Dict[str, torch.Tensor], device: str):
-    new_dict = {k: v.to(device) for k, v in old_dict.items()}
-    return new_dict
-
-
 def train_test_split(total: int, split_every: int, is_train: bool) -> List[int]:
     ids = [i for i in np.arange(total) if (i % split_every == 0) != is_train]
     return ids
+
+
+class _trunc_exp(Function):
+    @staticmethod
+    @custom_fwd(cast_inputs=torch.float32)  # cast to float32
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        return torch.exp(x)
+
+    @staticmethod
+    @custom_bwd
+    def backward(ctx, g):
+        x = ctx.saved_tensors[0]
+        return g * torch.exp(x.clamp(-15, 15))
+
+
+trunc_exp = _trunc_exp.apply
 
 
 # TODO: type check ndarray sizes

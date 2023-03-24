@@ -11,7 +11,6 @@ from dacite.exceptions import UnexpectedDataError
 from simple_parsing.docstring import get_attribute_docstring
 import yaml
 
-from common import DatasetCoordSystem
 from utils import create_logger
 
 
@@ -77,7 +76,7 @@ def extract_opt(field_opt_type):
     return field_opt_type.__args__[0]
 
 
-def tmp(p):
+def expand_path(p):
     if p is ConfigValue.EmptyPassed:
         return p
     return Path(p).expanduser()
@@ -88,9 +87,8 @@ class Config:
     print_col_width: int = 30
 
     types_cfg = DaciteConfig(strict=True, type_hooks={
-        Path: tmp,
-        tuple: tuple,
-        DatasetCoordSystem: lambda x: DatasetCoordSystem[x]
+        Path: expand_path,
+        tuple: tuple
     })
 
     @classmethod
@@ -197,10 +195,8 @@ class Config:
             elif v is None:
                 # Optional argument, no default value
                 if not dataclasses.is_dataclass(field_type):
-                    def type_converter(x):
-                        return field_type(x)
                     parser.add_argument(
-                        *_argnames(k), type=type_converter, help=docstr, nargs='?',
+                        *_argnames(k), type=field_type, help=docstr, nargs='?',
                         default=None, const=ConfigValue.EmptyPassed)
 
             # Optional argument, has loaded default value
@@ -225,8 +221,8 @@ class Config:
 
 @dataclass
 class BaseConfig(Config):
-    name: str
-    """Name of experiment."""
+    log_dir: Optional[Path] = None
+    """Path to log folder."""
 
     data_cfg: Optional[Path] = None
     """Path of dataset configuration file."""
@@ -234,11 +230,8 @@ class BaseConfig(Config):
     ckpt: Optional[Path] = None
     """Path of checkpoint to load from."""
 
-    style_image: Optional[Union[Path, ConfigValue]] = None
+    style_image: Optional[Path] = None
     """If provided, model will perform style transfer on this image."""
-
-    run_dir: Path = './runs'
-    """Root path of log folder. Logs will be stored at <run_dir>/<name>."""
 
 
 @dataclass
@@ -255,8 +248,8 @@ class DatasetConfig(Config):
     scale: float
     """Scale all poses (w.r.t origin) by a factor."""
 
-    coord_type: DatasetCoordSystem = DatasetCoordSystem.RFU
-    """Coordinate system for raw poses."""
+    ct_image: Optional[Path] = None
+    """Perform color transform to this style image."""
 
     # bg_color: str
     # """Background color. Any matplotlib.colors compatible string is acceptable."""
@@ -274,9 +267,6 @@ class DatasetConfig(Config):
 
         black2white: bool
         """Convert black (0, 0, 0) pixels into white."""
-
-        scale_factor: float
-        """Scale bounding box by this value before subdivision into smaller networks."""
 
     replica_cfg: Optional[ReplicaConfig] = None
     """Additional config settings for Replica dataset."""
@@ -443,6 +433,12 @@ class TrainConfig(Config):
 
     photo_lambda: float
     """Photorealistic loss multiplier."""
+
+    style_seg_path: Optional[Path] = None
+    """Style image segment groups."""
+
+    style_matching: Optional[str] = None
+    """User-supplied style matching."""
 
     default_path = 'cfgs/training/default.yaml'
 

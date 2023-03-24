@@ -1,79 +1,62 @@
 import json
 import numpy as np
+from pathlib import Path
+from typing import List, Optional
 
-from common import Intrinsics, RotatedBBox
+from common import DatasetSplit, Intrinsics
 from config import DatasetConfig
 from data.base_dataset import BaseDataset
-import utils
+from utils.matrix import convert_poses
 
 
 class ReplicaDataset(BaseDataset):
-    def __init__(self, *args):
-        super().__init__(*args)
-        assert self.cfg.replica_cfg is not None
+    """Replica dataset."""
 
-        self.rgb_paths = []
-        self.cameras = []
+    def __init__(
+        self,
+        cfg: DatasetConfig,
+        split: DatasetSplit,
+        max_count: Optional[int] = None
+    ) -> None:
+        self.root = cfg.root_path
+        self.split_traj_ids = cfg.replica_cfg.traj_ids[:3]
+        super().__init__(cfg, split, max_count)
 
-        for traj in self.cfg.replica_cfg.traj_ids:
-            subdir = self.cfg.root_path / 'train' / '{:02d}'.format(traj)
-            self.rgb_paths += sorted(subdir.glob('*_rgb.png'))
+    def _get_image_paths(self) -> List[Path]:
+        image_paths = []
 
+        for traj in self.split_traj_ids:
+            subdir = self.root / 'train' / '{:02d}'.format(traj)
+            image_paths += sorted(subdir.glob('*.png'))
+
+        return image_paths
+
+    def _get_seg_groups(self) -> np.ndarray:
+        groups_np = np.load(self.root / 'seg_ids' / '{}.npy'.format(self.cfg.replica_cfg.name))
+        return groups_np.astype(np.float32)
+
+    def _get_poses(self) -> np.ndarray:
+        poses = []
+
+        for traj in self.split_traj_ids:
+            subdir = self.root / 'train' / '{:02d}'.format(traj)
             with open(subdir / 'cameras.json', 'r') as f:
                 traj_cameras = json.load(f)
-            self.cameras += traj_cameras
+            poses += [np.linalg.inv(c['Rt']) for c in traj_cameras]
 
-        self.camera_t = np.array([
-            [1, 0, 0],
-            [0, -1, 0],
-            [0, 0, -1]
-        ])
+        poses = np.stack(poses).astype(np.float32)
+        poses = convert_poses(poses, w_coord='rdf', c_coord='rub')
 
-        self.pose_t = np.array([
-            [1, 0, 0, 0],
-            [0, 0, -1, 0],
-            [0, 1, 0, 0],
-            [0, 0, 0, 1]
-        ])
+        # Center poses
+        poses_t = poses[:, :3, 3]
+        poses_center = (np.amax(poses_t, axis=0) + np.amin(poses_t, axis=0)) / 2.0
+        poses_t -= poses_center
 
-        assert len(self.rgb_paths) == len(self.cameras)
-        frame_ids = self._init_frame_ids(len(self.rgb_paths))
-        if self.max_count is not None:
-            self.rgb_paths = [self.rgb_paths[i] for i in frame_ids]
-            self.cameras = [self.cameras[i] for i in frame_ids]
+        return poses
 
-        self.imgs = np.stack([utils.parse_rgb(path) for path in self.rgb_paths])
-        self.poses = np.stack([camera['Rt'] for camera in self.cameras])
-        self._alpha2white()
-
-        if self.cfg.replica_cfg.black2white:
-            mask = np.all(self.imgs <= 0., axis=-1, keepdims=True)
-            self.imgs = np.where(mask, 1., self.imgs)
-
-        for i in range(len(self)):
-            R = np.copy(self.poses[i, :3, :3])
-            t = np.copy(self.poses[i, :3, 3])
-            self.poses[i, :3, 3] = -np.matmul(R.T, t)
-            self.poses[i, :3, :3] = np.matmul(self.camera_t, R).T
-
-        self.poses = np.einsum('ij, njk -> nik', self.pose_t, self.poses)
-        self.poses = self.poses.astype(np.float32)
-
-        _, _, H, W = self.imgs.shape
+    def _get_intr(self) -> Intrinsics:
+        _, _, H, W = self.images.shape
         cx, cy = W // 2, H // 2
         f = self.cfg.replica_cfg.focal_ratio * max(H, W)
-        self.intr = Intrinsics(H, W, f, f, cx, cy)
-
-    def __str__(self):
-        return super().__str__(name=self.cfg.replica_cfg.name)
-
-
-def load_bbox(
-    dataset_cfg: DatasetConfig
-) -> RotatedBBox:
-    assert dataset_cfg.replica_cfg is not None
-    bbox_path = dataset_cfg.root_path / 'bboxes' / '{}.txt'.format(dataset_cfg.replica_cfg.name)
-    bbox_coords = utils.load_matrix(bbox_path)
-
-    bbox = RotatedBBox(bbox_coords)
-    return bbox
+        intr = Intrinsics(H, W, f, f, cx, cy)
+        return intr

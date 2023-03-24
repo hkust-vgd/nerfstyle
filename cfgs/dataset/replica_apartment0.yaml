@@ -1,15 +1,7 @@
 root_path: ~/datasets/replica_all/
 type: Replica
-grid_res:
-- 832
-- 1184
-- 224
-net_res:
-- 52
-- 74
-- 14
-near: 0.5
-far: 12.0
+bound: 4.0
+scale: 0.50
 replica_cfg:
   name: apartment0
   focal_ratio: 0.5

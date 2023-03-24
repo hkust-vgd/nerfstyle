@@ -1,19 +1,9 @@
 root_path: ~/datasets/replica_all/
 type: Replica
-grid_res:
-- 544
-- 448
-- 224
-net_res:
-- 34
-- 28
-- 14
-near: 0.05
-far: 6.8
-bg_color: black
+bound: 2.0
+scale: 0.50
 replica_cfg:
   name: room1
   focal_ratio: 0.5
   traj_ids: [19, 21, 32, 34, 61, 62, 63, 66, 70]
   black2white: false
-  scale_factor: 1.05
