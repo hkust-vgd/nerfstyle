@@ -87,6 +87,9 @@ class BaseDataset(Dataset, ABC):
         if self.split == DatasetSplit.TRAIN:
             self.seg_groups = self._get_seg_groups()
             unique_groups = np.unique(self.seg_groups)
+            if unique_groups[0] < 0:
+                unique_groups = unique_groups[1:]
+
             self.num_classes = len(unique_groups)
             assert self.seg_groups.shape[-2:] == self.images.shape[-2:]
             assert np.all(unique_groups == np.arange(self.num_classes))

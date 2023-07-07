@@ -30,8 +30,11 @@ class LLFFDataset(BaseDataset):
         return [self.root / f['file_path'] for f in self.split_json['frames']]
 
     def _get_seg_groups(self) -> np.ndarray:
-        groups_np = np.load(self.root / 'train_seg_groups.npy')
-        return groups_np.astype(np.float32)
+        # groups_np = np.load(self.root / 'train_seg_groups.npy')
+        # return groups_np.astype(np.float32)
+        seg_paths = [self.root / 'seg' / '{}_seg.npz'.format(fn) for fn in self.fns]
+        segs_np = np.stack([np.load(p)['seg_map'] for p in seg_paths])
+        return segs_np.astype(np.float32)
 
     def _get_poses(self) -> np.ndarray:
         poses = [f['transform_matrix'] for f in self.split_json['frames']]

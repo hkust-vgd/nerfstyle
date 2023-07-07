@@ -122,12 +122,15 @@ class SemanticStyleLoss(StyleLoss):
         super().__init__(keys)
         self.ready = False
 
-        self.clusters = np.load(str(clusters_path))
-        self.n_clusters = len(np.unique(self.clusters))
-        assert np.all(np.arange(self.n_clusters) == np.unique(self.clusters))
+        self.clusters = np.load(str(clusters_path))['seg_map']
+        clusters_list = np.unique(self.clusters)
+        if clusters_list[0] < 0:
+            clusters_list = clusters_list[1:]
+
+        self.n_clusters = len(clusters_list)
+        assert np.all(np.arange(self.n_clusters) == clusters_list)
         self.clusters = torch.tensor(self.clusters).cuda()
         self.matching = matching
-        # self._debug_matching()
 
     def _debug_matching(self):
         for i, j in enumerate(self.matching):
@@ -139,7 +142,6 @@ class SemanticStyleLoss(StyleLoss):
         style_feats = all_style_feats[self.keys[0]].squeeze(0)
         self.style_feats = style_feats
 
-        print(style_feats.shape[1:], self.clusters.shape)
         assert style_feats.shape[1:] == self.clusters.shape
 
         self.style_feats_mean = torch.stack([
@@ -165,8 +167,10 @@ class SemanticStyleLoss(StyleLoss):
         patch_dists = torch.linalg.norm(
             image_centroids[:, None] - self.style_centroids[None], dim=-1)
         cost_mtx = (feat_dists + patch_dists).detach().cpu().numpy()
+        cost_mtx = np.nan_to_num(cost_mtx)
         self.matching = linear_sum_assignment(cost_mtx)[1]
-        self._debug_matching()
+        print(self.matching)
+        # self._debug_matching()
 
     def forward(
         self,

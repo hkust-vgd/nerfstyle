@@ -278,8 +278,7 @@ class Trainer:
             return losses
 
         assert classes is not None
-        class_lambda = 0.001
-        class_loss = self.class_loss(output['classes'], classes) * class_lambda
+        class_loss = self.class_loss(output['classes'], classes) * self.train_cfg.class_lambda
         losses['class'] = LossValue('Class', 'class_loss', class_loss)
 
         sparsity_loss = 0

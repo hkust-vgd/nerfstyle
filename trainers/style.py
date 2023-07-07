@@ -1,7 +1,6 @@
 from functools import partial
 from itertools import product
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 import time
 
 import einops
@@ -46,7 +45,9 @@ class StyleTrainer(Trainer):
         self.fx = VGG16FeatureExtractor(fx_keys).to(self.device)
         # self.style_loss = get_style_loss('AdaINStyleLoss', fx_keys)
         # self.style_loss = get_style_loss('NNFMStyleLoss', fx_keys)
-        matching = [int(c) for c in self.train_cfg.style_matching.split(',')]
+        matching = None
+        if self.train_cfg.style_matching is not None:
+            matching = [int(c) for c in self.train_cfg.style_matching.split(',')]
         self.style_loss = get_style_loss(
             'SemanticStyleLoss', fx_keys,
             clusters_path=self.train_cfg.style_seg_path, matching=matching)
@@ -94,18 +95,18 @@ class StyleTrainer(Trainer):
 
         content_loss = F.mse_loss(rgb_feats[self.content_feat], target_feats[self.content_feat])
         style_loss = self.style_loss(rgb_feats, style_feats, preds, self.iter_ctr)
-        photo_loss = self.photo_loss(target_chw, rgb_map_chw)
+        # photo_loss = self.photo_loss(target_chw, rgb_map_chw)
 
         content_loss *= self.train_cfg.content_lambda
         style_loss *= self.train_cfg.style_lambda
-        photo_loss *= self.train_cfg.photo_lambda
+        # photo_loss *= self.train_cfg.photo_lambda
 
         losses = {
             'content': LossValue('Content', 'content_loss', content_loss),
             'style': LossValue('Style', 'style_loss', style_loss),
-            'photo': LossValue('Photo', 'photo_loss', photo_loss),
+            # 'photo': LossValue('Photo', 'photo_loss', photo_loss),
         }
-        total_loss = content_loss + style_loss + photo_loss
+        total_loss = content_loss + style_loss
 
         # if self.iter_ctr < self.mse_end:
         #     mse_loss = F.mse_loss(rgb_map_chw, target_chw)

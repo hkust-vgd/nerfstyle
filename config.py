@@ -425,6 +425,9 @@ class TrainConfig(Config):
     weight_reg_lambda: float
     """Weight regularization multiplier."""
 
+    class_lambda: float
+    """Classification loss multiplier."""
+
     content_lambda: float
     """Content loss multiplier."""
 
