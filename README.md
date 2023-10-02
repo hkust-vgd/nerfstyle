@@ -26,7 +26,7 @@ conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvi
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 
 # Install other dependencies
-pip install dacite simple_parsing pyyaml ipykernel tabulate einops GitPython matplotlib torch-ema urllib3 idna certifi oauthlib google-auth werkzeug ninja
+pip install dacite simple_parsing pyyaml ipykernel tabulate einops GitPython matplotlib torch-ema urllib3 idna certifi oauthlib google-auth werkzeug ninja imageio
 ```
 
 **Training datasets**
@@ -36,9 +36,7 @@ pip install dacite simple_parsing pyyaml ipykernel tabulate einops GitPython mat
 
 **Style images and segementations**
 
-Segmentations of style images are computed using [Segment Anything](https://github.com/facebookresearch/segment-anything). Precomputed segmentations for some of the style images are provided below.
-
-- `scream` (image | segmentation)
+Segmentations of style images are computed using [Segment Anything](https://github.com/facebookresearch/segment-anything). Precomputed segmentations for some of the style images are provided [here](https://www.dropbox.com/scl/fo/nx3ofutiaso6ublvo0d7v/h?rlkey=m2n795vqmdzhumc8zfb6tr18r&dl=0).
 
 ## Usage
 
@@ -52,8 +50,8 @@ python train.py --log-dir runs/room_base --data-cfg cfgs/dataset/llff_room.yaml
 **Stage 2: Style transfer**
 
 ```bash
-python train.py --log-dir runs/room_scream --ckpt <path_to_stage_1_ckpt> --style-image style_images/scream.jpg --style-seg-path style_segs/scream.npz
+python train.py --log-dir runs/room_scream --ckpt <path_to_stage_1_ckpt> --style-image <style_img>.jpg --style-seg-path <style_img>.npz
 
 # Override default matching with manual one
-python train.py --log-dir runs/room_scream --ckpt <path_to_stage_1_ckpt> --style-image style_images/scream.jpg --style-seg-path style_segs/scream.npz --style-matching 7,13,2
+python train.py --log-dir runs/room_scream --ckpt <path_to_stage_1_ckpt> --style-image <style_img>.jpg --style-seg-path <style_img>.npz --style-matching 7,13,2
 ```
