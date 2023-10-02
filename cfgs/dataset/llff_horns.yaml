@@ -1,3 +1,0 @@
-root_path: datasets/nerf_llff_data/horns/
-type: LLFF
-bound: 2.0

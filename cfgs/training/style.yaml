@@ -9,5 +9,5 @@ intervals:
 content_lambda: 0.001
 style_lambda: 1.0
 photo_lambda: 0
-defer_patch_size: 100
+defer_patch_size: 200
 test_before_train: true

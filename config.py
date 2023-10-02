@@ -444,17 +444,3 @@ class TrainConfig(Config):
     """User-supplied style matching."""
 
     default_path = 'cfgs/training/default.yaml'
-
-
-@dataclass
-class OccupancyGridConfig(Config):
-    subgrid_size: int
-    """No. of cells to subdivide each grid cell during testing for occupancy."""
-
-    threshold: float
-    """Threshold value determining if cell is occupied."""
-
-    voxel_bsize: int
-    """No. of voxels to handle at the same time."""
-
-    default_path = 'cfgs/occupancy_grid.yaml'

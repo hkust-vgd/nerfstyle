@@ -1,9 +1,0 @@
-root_path: ~/datasets/replica_all/
-type: Replica
-bound: 2.0
-scale: 0.33
-replica_cfg:
-  name: office3
-  focal_ratio: 0.5
-  traj_ids: [7, 8, 12, 41, 45, 49, 52, 53, 56, 58, 67, 68, 69, 71, 75]
-  black2white: true
