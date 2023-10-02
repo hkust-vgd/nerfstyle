@@ -121,16 +121,22 @@ class SemanticStyleLoss(StyleLoss):
     ) -> None:
         super().__init__(keys)
         self.ready = False
+        self.clusters = None
+        self.matching = None
+        self.use_matching = False
 
-        self.clusters = np.load(str(clusters_path))['seg_map']
-        clusters_list = np.unique(self.clusters)
-        if clusters_list[0] < 0:
-            clusters_list = clusters_list[1:]
+        if clusters_path is not None:
+            self.use_matching = True
 
-        self.n_clusters = len(clusters_list)
-        assert np.all(np.arange(self.n_clusters) == clusters_list)
-        self.clusters = torch.tensor(self.clusters).cuda()
-        self.matching = matching
+            self.clusters = np.load(str(clusters_path))['seg_map']
+            clusters_list = np.unique(self.clusters)
+            if clusters_list[0] < 0:
+                clusters_list = clusters_list[1:]
+
+            self.n_clusters = len(clusters_list)
+            assert np.all(np.arange(self.n_clusters) == clusters_list)
+            self.clusters = torch.tensor(self.clusters).cuda()
+            self.matching = matching
 
     def _debug_matching(self):
         for i, j in enumerate(self.matching):
@@ -142,7 +148,14 @@ class SemanticStyleLoss(StyleLoss):
         style_feats = all_style_feats[self.keys[0]].squeeze(0)
         self.style_feats = style_feats
 
-        assert style_feats.shape[1:] == self.clusters.shape
+        if not self.use_matching:
+            self.ready = True
+            return
+
+        size1, size2 = style_feats.shape[1:], self.clusters.shape
+        assert size1 == size2, \
+            'Style features {} and style clusters {} ' \
+            'are not same size'.format(tuple(size1), tuple(size2))
 
         self.style_feats_mean = torch.stack([
             torch.mean(style_feats[:, self.clusters == i], dim=1) for i in range(self.n_clusters)
@@ -181,7 +194,7 @@ class SemanticStyleLoss(StyleLoss):
     ) -> torch.Tensor:
         assert self.ready
         image_feat = feats1[self.keys[0]].squeeze(0)
-        if self.matching is None:
+        if self.use_matching and self.matching is None:
             self.update_matching(image_feat, preds)
 
         preds_small = labels_downscale(preds, image_feat.shape[-2:])
@@ -190,7 +203,7 @@ class SemanticStyleLoss(StyleLoss):
         style_feat_nc = rearrange(self.style_feats, 'c h w -> (h w) c')
         dists = cosine_dists(image_feat_nc, style_feat_nc)
 
-        if iter <= 150:
+        if self.use_matching and iter <= 150:
             for i in range(self.num_classes):
                 image_mask = (preds_small == i).reshape(-1)
                 style_mask = (self.clusters != self.matching[i]).reshape(-1)

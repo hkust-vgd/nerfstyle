@@ -5,7 +5,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.cpp_extension import load
-from torchtyping import TensorType
 
 from common import Box2D, Intrinsics, RayBatch
 import utils
@@ -69,14 +68,14 @@ class NerfLib:
     @assert_ready
     def generate_rays(
         self,
-        pose: TensorType[4, 4],
+        pose,
         intr: Intrinsics,
-        img: Optional[TensorType['H', 'W', 3]] = None,
+        img=None,
         patch: Optional[Box2D] = None,
         precrop: float = 1.,
         bsize: Optional[int] = None,
         camera_flip: int = 0
-    ) -> Tuple[RayBatch, Optional[TensorType['K', 3]]]:
+    ):
         """Generate a batch of rays.
 
         Args:
@@ -149,7 +148,7 @@ class NerfLib:
         near: float,
         far: float,
         num_samples: int
-    ) -> Tuple[TensorType['N', 'K', 3], TensorType['N', 'K']]:
+    ):
         """Given a batch of N rays, sample K points per ray.
 
         Args:
@@ -179,13 +178,13 @@ class NerfLib:
     @assert_ready
     def integrate_points(
         self,
-        dists: TensorType['N', 'K'],
-        rgbs: TensorType['N', 'K', 3],
-        densities: TensorType['N', 'K'],
-        prev_rgb: TensorType['N', 3],
-        prev_acc: TensorType['N', 1],
-        prev_trans: TensorType['N', 1]
-    ) -> Tuple[TensorType['N', 3], TensorType['N', 1]]:
+        dists,
+        rgbs,
+        densities,
+        prev_rgb,
+        prev_acc,
+        prev_trans
+    ):
         """Evaluate the volumetric rendering equation for N rays, each with K samples.
 
         Args:
@@ -222,11 +221,11 @@ class NerfLib:
     @assert_ready
     def global_to_local(
         self,
-        points: TensorType['batch_size', 3],
-        mid_points: TensorType['num_nets', 3],
-        voxel_size: TensorType[3],
-        batch_sizes: TensorType['num_nets']
-    ) -> TensorType['batch_size', 3]:
+        points,
+        mid_points,
+        voxel_size,
+        batch_sizes
+    ):
         local_points = torch.empty_like(points)
         ptr = 0
         for mid_point, bsize in zip(mid_points, batch_sizes):

@@ -10,9 +10,10 @@ import torchvision
 from tqdm import tqdm
 
 from common import DatasetSplit
+from config import BaseConfig
 from data import get_dataset
 from nerf_lib import nerf_lib
-from trainers import unpickle_trainer
+from trainers import get_trainer
 import utils
 
 
@@ -34,6 +35,8 @@ def main():
     nerf_lib.device = device
 
     # Load renderer (with model)
+    print(args)
+    raise ValueError
     ckpt_trainer = unpickle_trainer(args.ckpt)
     renderer = ckpt_trainer.renderer
     ema = ckpt_trainer.ema

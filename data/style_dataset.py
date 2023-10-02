@@ -13,7 +13,7 @@ class SingleImage(Dataset):
     def __init__(
         self,
         image_path: Path,
-        longer_edge: int
+        longer_edge: Optional[int] = None
     ):
         self.image_name = image_path.name
         style_image_np = utils.parse_rgb(image_path, size=longer_edge)

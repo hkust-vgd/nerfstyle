@@ -6,12 +6,9 @@ from typing import Optional, Tuple, TypeVar, Union
 import numpy as np
 import torch
 from torch import Tensor
-from torchtyping import TensorType, patch_typeguard
-from typeguard import typechecked
 import utils
 
-T = TypeVar('T')
-patch_typeguard()
+T = TypeVar('T')\
 
 
 class DatasetSplit(Enum):
@@ -334,12 +331,11 @@ class RotatedBBox(BBox):
         mid_pt = (self._min_pt + self._max_pt) / 2
         self.pts = (self.pts - mid_pt) * factor + mid_pt
 
-    @typechecked
     def forward(
         self,
-        pts: TensorType['batch_size', 3],
+        pts,
         outside: bool = False
-    ) -> TensorType['batch_size']:
+    ):
         # Point is inside bbox if all 6 reference faces are facing it
         vecs = pts.unsqueeze(1) - self.origins  # (N, 6, 3)
         dot_prods = torch.einsum('nfc, fc -> nf', vecs, self.normals)
@@ -381,18 +377,12 @@ class OccupancyGrid(TensorModule):
         grid_obj = _load(path)
         return grid_obj
 
-    def pts_to_indices(
-        self,
-        pts: TensorType['batch_size', 3]
-    ) -> TensorType['batch_size', 3]:
+    def pts_to_indices(self, pts):
         indices = (pts - self.global_min_pt) / self.voxel_size
         indices_long = torch.floor(indices).to(torch.long)
         return indices_long
 
-    def forward(
-        self,
-        pts: TensorType['batch_size', 3]
-    ) -> TensorType['batch_size']:
+    def forward(self, pts):
         epsilon = 1e-5
         invalid = [
             (pts >= self.global_max_pt - epsilon),

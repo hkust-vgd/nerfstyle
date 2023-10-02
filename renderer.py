@@ -4,7 +4,6 @@ from packaging import version as pver
 from typing import Dict, Optional, Tuple, TypeVar
 import torch
 from torch import Tensor
-from torchtyping import TensorType
 
 from common import Box2D, Intrinsics, RayBatch, TensorModule
 from config import RendererConfig
@@ -303,8 +302,8 @@ class Renderer(TensorModule):
 
     def render(
         self: T,
-        pose: TensorType[4, 4],
-        image: Optional[TensorType['H', 'W', 3]] = None,
+        pose,
+        image = None,
         patch: Optional[Box2D] = None,
         num_rays: Optional[int] = None,
         training: bool = False

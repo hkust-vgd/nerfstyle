@@ -11,9 +11,23 @@ Source code for the paper "Locally Stylized Neural Radiance Fields".
 
 **Python environment**
 
-Code is tested with a single NVIDIA RTX 3090 GPU, using Python 3.8, PyTorch 1.12 and CUDA 11.3.
+Code is tested with a single NVIDIA RTX 3090 GPU, using Python 3.10, PyTorch 2.0 and CUDA 11.7.
 
-Setup instructions will be provided later.
+
+```bash
+# Setup conda env
+conda create --name nerfstyle python=3.10
+conda activate nerfstyle
+
+# Install PyTorch (CUDA 11.7)
+conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
+
+# Install tiny-cuda-nn
+pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+
+# Install other dependencies
+pip install dacite simple_parsing pyyaml ipykernel tabulate einops GitPython matplotlib torch-ema urllib3 idna certifi oauthlib google-auth werkzeug ninja
+```
 
 **Training datasets**
 

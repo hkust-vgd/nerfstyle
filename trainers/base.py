@@ -84,7 +84,8 @@ class Trainer:
                     )
 
                 # proceed = utils.prompt_bool(
-                #     'Data after iteration {:d} will be overwritten. Proceed?'.format(self.iter_ctr))
+                #     'Data after iteration {:d} will be overwritten. '
+                #     'Proceed?'.format(self.iter_ctr))
                 # if not proceed:
                 #     sys.exit(1)
             else:

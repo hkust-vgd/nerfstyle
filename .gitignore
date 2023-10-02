@@ -2,7 +2,7 @@
 .idea
 .ipynb_checkpoints
 
-datasets
+datasets/nerf_llff_data/room/seg
 networks/unused
 style_segs
 raymarching/build

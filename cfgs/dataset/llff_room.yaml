@@ -1,4 +1,4 @@
-root_path: /home/hwpang/workspace/torch-ngp/data/nerf_llff_data/room/
+root_path: datasets/nerf_llff_data/room/
 type: LLFF
 bound: 2.0
 scale: 0.33
