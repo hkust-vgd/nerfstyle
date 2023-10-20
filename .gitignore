@@ -2,7 +2,7 @@
 .idea
 .ipynb_checkpoints
 
-datasets/nerf_llff_data/*/seg
+datasets/nerf_llff_data/*/seg*
 datasets/nerf_llff_data/*/images_8
 networks/unused
 style_segs
