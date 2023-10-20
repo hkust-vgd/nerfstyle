@@ -1,6 +1,5 @@
 import itertools
 from math import *
-from packaging import version as pver
 from typing import Dict, Optional, Tuple, TypeVar
 import torch
 from torch import Tensor
@@ -15,13 +14,6 @@ import utils
 T = TypeVar('T', bound='Renderer')
 
 STEP_CTR_SIZE = 16
-
-
-def custom_meshgrid(*args):
-    if pver.parse(torch.__version__) < pver.parse('1.10'):
-        return torch.meshgrid(*args)
-    else:
-        return torch.meshgrid(*args, indexing='ij')
 
 
 class Renderer(TensorModule):
@@ -157,7 +149,7 @@ class Renderer(TensorModule):
                 for _ in range(3)]
 
             for (xs, ys, zs) in itertools.product(X, Y, Z):
-                xx, yy, zz = custom_meshgrid(xs, ys, zs)
+                xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
                 coords = torch.cat([
                     xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)
                 indices = raymarching.morton3D(coords).long()

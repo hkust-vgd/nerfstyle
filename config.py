@@ -68,7 +68,7 @@ def is_opt(field_opt_type):
     # TODO: Use get_origin / get_args (Python 3.8)
     if getattr(field_opt_type, '__origin__', None) is not Union:
         return False
-    return type(None) == field_opt_type.__args__[1]
+    return type(None) is field_opt_type.__args__[1]
 
 
 def extract_opt(field_opt_type):
@@ -250,6 +250,9 @@ class DatasetConfig(Config):
 
     ct_image: Optional[Path] = None
     """Perform color transform to this style image."""
+
+    seg_name: str = 'seg'
+    """Directory for segmentation maps."""
 
     # bg_color: str
     # """Background color. Any matplotlib.colors compatible string is acceptable."""

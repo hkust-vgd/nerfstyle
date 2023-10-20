@@ -152,10 +152,9 @@ class SemanticStyleLoss(StyleLoss):
             self.ready = True
             return
 
-        size1, size2 = style_feats.shape[1:], self.clusters.shape
-        assert size1 == size2, \
-            'Style features {} and style clusters {} ' \
-            'are not same size'.format(tuple(size1), tuple(size2))
+        style_feats_size = style_feats.shape[1:]
+        self.clusters = F.interpolate(self.clusters[None, None].float(), style_feats_size)
+        self.clusters = self.clusters[0, 0].to(torch.long)
 
         self.style_feats_mean = torch.stack([
             torch.mean(style_feats[:, self.clusters == i], dim=1) for i in range(self.n_clusters)
@@ -203,7 +202,7 @@ class SemanticStyleLoss(StyleLoss):
         style_feat_nc = rearrange(self.style_feats, 'c h w -> (h w) c')
         dists = cosine_dists(image_feat_nc, style_feat_nc)
 
-        if self.use_matching and iter <= 150:
+        if self.use_matching:
             for i in range(self.num_classes):
                 image_mask = (preds_small == i).reshape(-1)
                 style_mask = (self.clusters != self.matching[i]).reshape(-1)

@@ -1,11 +1,11 @@
 # Locally Stylized Neural Radiance Fields
 
-![](images/stylization_diagram.jpg)
+![](images/stylization_diagram.png)
 
 
 ## Description
 
-Source code for the paper "Locally Stylized Neural Radiance Fields".
+Source code for the paper "Locally Stylized Neural Radiance Fields". ([arxiv](https://arxiv.org/abs/2309.10684))
 
 ## Setup
 
@@ -40,18 +40,27 @@ Segmentations of style images are computed using [Segment Anything](https://gith
 
 ## Usage
 
-**Stage 1: Training the base NeRF model and classification network**
+**Reconstruction stage**
+
+Trains the base NeRF model and classification network.
 
 ```bash
 mkdir runs
 python train.py --log-dir runs/room_base --data-cfg cfgs/dataset/llff_room.yaml
-```
 
-**Stage 2: Style transfer**
+# Train with sparsity regulation
+python train.py --log-dir runs/room_base --data-cfg cfgs/dataset/llff_room.yaml  --sparsity_lambda 0.01
+```
+*Sparsity regulation* encourages the radiance field to minimize the predicted density in areas that correspond to empty space. It gives the stylization result a more "solid" effect. 
+
+**Stylization stage**
 
 ```bash
-python train.py --log-dir runs/room_scream --ckpt <path_to_stage_1_ckpt> --style-image <style_img>.jpg --style-seg-path <style_img>.npz
+python train.py --log-dir runs/room_scream --ckpt <path_to_recon_stage_ckpt> --style-image <style_img>.jpg --style-seg-path <style_img>.npz  --max-steps 512
+```
 
-# Override default matching with manual one
-python train.py --log-dir runs/room_scream --ckpt <path_to_stage_1_ckpt> --style-image <style_img>.jpg --style-seg-path <style_img>.npz --style-matching 7,13,2
+**Inference**
+
+```bash
+python render.py <path_to_stylization_stage_ckpt>
 ```
